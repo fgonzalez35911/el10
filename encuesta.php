@@ -143,7 +143,8 @@ if ($esAdmin) {
 
     <?php if($esAdmin): ?>
         <?php include 'includes/layout_header.php'; ?>
-        <div class="header-blue">
+        <div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+
             <i class="bi bi-chat-text-fill bg-icon-large"></i>
             <div class="container position-relative">
                 <div class="d-flex justify-content-between align-items-center mb-4">

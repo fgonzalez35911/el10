@@ -1,5 +1,5 @@
 <?php
-// clientes.php - VERSIÓN RESTAURADA (DISEÑO TOTAL + FIX FUNCIONAL)
+// clientes.php - VERSIÓN RESTAURADA (DISEÑO TOTAL + FIX BANDERITAS)
 session_start();
 error_reporting(E_ALL); 
 ini_set('display_errors', 1);
@@ -32,9 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
                 $sql = "UPDATE clientes SET nombre=?, telefono=?, email=?, direccion=?, dni=?, dni_cuit=?, limite_credito=?, fecha_nacimiento=?, usuario=? WHERE id=?";
                 $conexion->prepare($sql)->execute([$nombre, $tel_val, $email, $dir_val, $dni, $dni, $limite, $nac_val, $user_form, $id_edit]);
             } else {
-                $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, email, fecha_nacimiento, limite_credito, usuario, direccion) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                $conexion->prepare($sql)->execute([$nombre, $dni, $dni, $telefono, $email, $fecha_nac, $limite, $user_form, $direccion]);
+                $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, email, fecha_nacimiento, limite_credito, usuario, direccion, fecha_registro, saldo_deudor, puntos_acumulados) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0)";
+                $conexion->prepare($sql)->execute([$nombre, $dni, $dni, $tel_val, $email, $nac_val, $limite, $user_form, $dir_val]);
             }
             header("Location: clientes.php?msg=ok"); exit;
         } catch (Exception $e) { die("Error Crítico DB: " . $e->getMessage()); }
@@ -43,7 +43,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
 
 // 3. BORRADO
 if (isset($_GET['borrar'])) {
-    if (!isset($_GET['token']) || $_GET['token'] !== $_SESSION['csrf_token']) { die("Error de seguridad."); }
     $id_b = intval($_GET['borrar']);
     try {
         $conexion->prepare("UPDATE ventas SET id_cliente = 1 WHERE id_cliente = ?")->execute([$id_b]);
@@ -53,42 +52,54 @@ if (isset($_GET['borrar'])) {
     } catch (Exception $e) { header("Location: clientes.php?error=db"); exit; }
 }
 
-// 4. CONSULTA DE DATOS
+// 4. CONSULTA DE DATOS (CON FILTRO DE CUMPLEAÑOS)
+$where_clause = "";
+if (isset($_GET['filtro']) && $_GET['filtro'] == 'cumple') {
+    $where_clause = " WHERE MONTH(c.fecha_nacimiento) = MONTH(CURDATE()) AND DAY(c.fecha_nacimiento) = DAY(CURDATE()) ";
+}
+
 $sql = "SELECT c.*, 
         (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'debe') - 
         (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'haber') as saldo_calculado,
         (SELECT MAX(fecha) FROM ventas WHERE id_cliente = c.id) as ultima_venta_fecha
-        FROM clientes c ORDER BY c.nombre ASC";
+        FROM clientes c $where_clause ORDER BY c.nombre ASC";
 
-$clientes = $conexion->query($sql)->fetchAll();
+// FIX: Forzamos FETCH_ASSOC para evitar el error de stdClass
+$clientes_query = $conexion->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 $clientes_json = [];
 $totalDeudaCalle = 0; $cntDeudores = 0; $cntAlDia = 0;
-$totalClientes = count($clientes);
+$totalClientes = count($clientes_query);
 
-foreach($clientes as $c) {
-    $saldo = floatval($c->saldo_calculado);
+foreach($clientes_query as $c) {
+    $saldo = floatval($c['saldo_calculado']);
     if($saldo > 0.1) { $totalDeudaCalle += $saldo; $cntDeudores++; } else { $cntAlDia++; }
     
-    $clientes_json[$c->id] = [
-        'id' => $c->id, 'nombre' => htmlspecialchars($c->nombre), 'dni' => $c->dni ?? '',
-        'email' => $c->email ?? '', 'fecha_nacimiento' => $c->fecha_nacimiento, 'telefono' => $c->telefono ?? '',
-        'limite' => $c->limite_credito, 'deuda' => $saldo, 'puntos' => $c->puntos_acumulados,
-        'usuario' => $c->usuario ?? '', 'direccion' => $c->direccion ?? '',
-        'ultima_venta' => $c->ultima_venta_fecha ? date('d/m/Y', strtotime($c->ultima_venta_fecha)) : 'Nunca'
+    $clientes_json[$c['id']] = [
+        'id' => $c['id'], 'nombre' => htmlspecialchars($c['nombre']), 'dni' => $c['dni'] ?? '',
+        'email' => $c['email'] ?? '', 'fecha_nacimiento' => $c['fecha_nacimiento'], 'telefono' => $c['telefono'] ?? '',
+        'limite' => $c['limite_credito'], 'deuda' => $saldo, 'puntos' => $c['puntos_acumulados'],
+        'usuario' => $c['usuario'] ?? '', 'direccion' => $c['direccion'] ?? '',
+        'ultima_venta' => $c['ultima_venta_fecha'] ? date('d/m/Y', strtotime($c['ultima_venta_fecha'])) : 'Nunca'
     ];
 }
 
 $color_sistema = '#102A57';
 try {
-    $conf = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch();
-    if ($conf) $color_sistema = $conf->color_barra_nav;
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+    if ($resColor) {
+        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+    }
 } catch (Exception $e) { }
 
-include 'includes/layout_header.php'; ?></div>
+include 'includes/layout_header.php'; 
+?>
 
-<div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important;">
-    <i class="bi bi-people-fill bg-icon-large"></i>
-    <div class="container position-relative">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css">
+
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
+    <i class="bi bi-people-fill bg-icon-large" style="z-index: 0;"></i>
+    <div class="container position-relative" style="z-index: 2;">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
                 <h2 class="font-cancha mb-0 text-white">Cartera de Clientes</h2>
@@ -121,14 +132,14 @@ include 'includes/layout_header.php'; ?></div>
     </div>
 </div>
 
-<div class="container pb-5">
-    <div class="card card-custom shadow-sm">
+<div class="container pb-5 mt-4">
+    <div class="card card-custom shadow-sm border-0 rounded-4 overflow-hidden">
         <div class="card-header bg-white py-3 border-0">
-            <input type="text" id="buscador" class="form-control bg-light" placeholder="Buscar por nombre o DNI..." onkeyup="filtrarClientes()">
+            <input type="text" id="buscador" class="form-control bg-light rounded-pill px-4" placeholder="Buscar por nombre o DNI..." onkeyup="filtrarClientes()">
         </div>
         <div class="table-responsive px-2">
-            <table class="table table-custom align-middle">
-                <thead>
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light small text-uppercase text-muted">
                     <tr>
                         <th class="ps-4">Cliente</th>
                         <th>DNI / Usuario</th>
@@ -139,35 +150,35 @@ include 'includes/layout_header.php'; ?></div>
                     </tr>
                 </thead>
                 <tbody class="bg-white">
-            <?php foreach($clientes as $c): 
-                $deuda = floatval($c->saldo_calculado);
-                $limite = floatval($c->limite_credito);
+            <?php foreach($clientes_query as $c): 
+                $deuda = floatval($c['saldo_calculado']);
+                $limite = floatval($c['limite_credito']);
             ?>
             <tr class="cliente-row">
                 <td class="ps-4">
                     <div class="d-flex align-items-center">
-                        <div class="avatar-circle me-3 bg-primary bg-opacity-10 text-primary"><?php echo strtoupper(substr($c->nombre, 0, 2)); ?></div>
-                        <div><div class="fw-bold text-dark"><?php echo $c->nombre; ?></div><small class="text-muted">ID #<?php echo $c->id; ?></small></div>
+                        <div class="avatar-circle me-3 bg-primary bg-opacity-10 text-primary" style="width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;"><?php echo strtoupper(substr($c['nombre'], 0, 2)); ?></div>
+                        <div><div class="fw-bold text-dark"><?php echo htmlspecialchars($c['nombre']); ?></div><small class="text-muted"><?php echo $c['telefono']; ?></small></div>
                     </div>
                 </td>
                 <td>
-                    <div class="small fw-bold text-dark"><?php echo $c->dni ?: '--'; ?></div>
-                    <span class="badge bg-light text-primary border">@<?php echo $c->usuario ?: 'sin_usuario'; ?></span>
+                    <div class="small fw-bold text-dark"><?php echo $c['dni'] ?: '--'; ?></div>
+                    <span class="badge bg-light text-primary border">@<?php echo $c['usuario'] ?: 'sin_usuario'; ?></span>
                 </td>
-                <td><span class="badge bg-warning bg-opacity-10 text-dark fw-bold"><i class="bi bi-star-fill text-warning me-1"></i> <?php echo number_format($c->puntos_acumulados, 0); ?></span></td>
+                <td><span class="badge bg-warning bg-opacity-10 text-dark fw-bold"><i class="bi bi-star-fill text-warning me-1"></i> <?php echo number_format($c['puntos_acumulados'], 0); ?></span></td>
                 <td>
                     <div class="small">
                         <div class="<?php echo $deuda > 0 ? 'text-danger fw-bold' : 'text-success'; ?>">Debe: $<?php echo number_format($deuda, 0, ',', '.'); ?></div>
                         <div class="text-muted" style="font-size: 0.7rem;">Límite Fiado: $<?php echo number_format($limite, 0, ',', '.'); ?></div>
                     </div>
                 </td>
-                <td class="small text-muted"><?php echo $c->ultima_venta_fecha ? date('d/m/y', strtotime($c->ultima_venta_fecha)) : 'Nunca'; ?></td>
+                <td class="small text-muted"><?php echo $c['ultima_venta_fecha'] ? date('d/m/y', strtotime($c['ultima_venta_fecha'])) : 'Nunca'; ?></td>
                 <td class="text-end pe-4">
                     <div class="d-flex justify-content-end gap-2">
-                        <button class="btn-action btn-eye text-info" onclick="verResumen(<?php echo $c->id; ?>)"><i class="bi bi-eye"></i></button>
-                        <a href="cuenta_cliente.php?id=<?php echo $c->id; ?>" class="btn-action btn-wallet text-primary"><i class="bi bi-wallet2"></i></a>
-                        <button class="btn-action btn-edit text-warning" onclick="editar(<?php echo $c->id; ?>)"><i class="bi bi-pencil"></i></button>
-                        <button class="btn-action btn-del text-danger" onclick="borrarCliente(<?php echo $c->id; ?>)"><i class="bi bi-trash"></i></button>
+                        <button type="button" class="btn btn-sm btn-light text-info rounded-circle" onclick="verResumen(<?php echo $c['id']; ?>)"><i class="bi bi-eye"></i></button>
+                        <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" class="btn btn-sm btn-light text-primary rounded-circle"><i class="bi bi-wallet2"></i></a>
+                        <button type="button" class="btn btn-sm btn-light text-warning rounded-circle" onclick="editar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
+                        <button type="button" class="btn btn-sm btn-light text-danger rounded-circle" onclick="borrarCliente(<?php echo $c['id']; ?>)"><i class="bi bi-trash"></i></button>
                     </div>
                 </td>
             </tr>
@@ -178,117 +189,69 @@ include 'includes/layout_header.php'; ?></div>
     </div>
 </div>
 
-<div class="modal fade" id="modalGestionCliente" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow-lg">
-    <div class="modal-header bg-dark text-white"><h5 class="modal-title fw-bold" id="titulo-modal">Nuevo Cliente</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+<div class="modal fade" id="modalGestionCliente" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow-lg rounded-4">
+    <div class="modal-header bg-dark text-white border-0 py-3"><h5 class="modal-title fw-bold" id="titulo-modal">Nuevo Cliente</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body p-4"><form method="POST" id="formCliente">
         <input type="hidden" name="id_edit" id="id_edit">
-        <div class="mb-3"><label class="form-label small fw-bold">Nombre Completo <span class="text-danger">*</span></label><input type="text" name="nombre" id="nombre" class="form-control fw-bold"></div>
+        <div class="mb-3"><label class="form-label small fw-bold text-muted">Nombre Completo *</label><input type="text" name="nombre" id="nombre" class="form-control fw-bold" required></div>
         <div class="row g-2 mb-3">
-            <div class="col-6"><label class="form-label small fw-bold">DNI <span class="text-danger">*</span></label><input type="text" name="dni" id="dni" class="form-control"></div>
-            <div class="col-6"><label class="form-label small fw-bold">Usuario (Sugerido)</label><input type="text" name="usuario_form" id="usuario_form" class="form-control"></div>
+            <div class="col-6"><label class="form-label small fw-bold text-muted">DNI *</label><input type="text" name="dni" id="dni" class="form-control" required></div>
+            <div class="col-6"><label class="form-label small fw-bold text-muted">Usuario</label><input type="text" name="usuario_form" id="usuario_form" class="form-control"></div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label small fw-bold d-block text-muted">WhatsApp (Internacional)</label>
+            <input type="tel" id="telefono_input" class="form-control fw-bold" style="width:100% !important;" required>
+            <input type="hidden" name="telefono" id="telefono_final">
         </div>
         <div class="row g-2 mb-3">
-            <div class="col-6"><label class="form-label small fw-bold">Teléfono</label><input type="text" name="telefono" id="telefono" class="form-control"></div>
-            <div class="col-6"><label class="form-label small fw-bold">Fecha Nac.</label><input type="date" name="fecha_nacimiento" id="fecha_nacimiento" class="form-control"></div>
+            <div class="col-6"><label class="form-label small fw-bold text-muted">Fecha Nac.</label><input type="date" name="fecha_nacimiento" id="fecha_nacimiento" class="form-control"></div>
+            <div class="col-6"><label class="form-label small fw-bold text-muted">Email *</label><input type="email" name="email" id="email" class="form-control" required></div>
         </div>
-        <div class="mb-3"><label class="form-label small fw-bold">Email <span class="text-danger">*</span></label><input type="email" name="email" id="email" class="form-control"></div>
-        <div class="mb-3"><label class="form-label small fw-bold">Dirección</label><input type="text" name="direccion" id="direccion" class="form-control"></div>
-        <div class="mb-4 bg-light p-3 rounded border"><label class="form-label small fw-bold text-danger">Límite de Fiado ($)</label><input type="number" name="limite" id="limite" class="form-control fw-bold text-danger" value="0"></div>
-        <div class="d-grid"><button type="submit" class="btn btn-primary btn-lg fw-bold shadow">GUARDAR CLIENTE</button></div>
+        <div class="mb-3"><label class="form-label small fw-bold text-muted">Dirección</label><input type="text" name="direccion" id="direccion" class="form-control"></div>
+        <div class="mb-4 bg-light p-3 rounded-3 border"><label class="form-label small fw-bold text-danger">Límite de Fiado ($)</label><input type="number" name="limite" id="limite" class="form-control fw-bold text-danger" value="0"></div>
+        <div class="d-grid"><button type="submit" class="btn btn-primary py-3 fw-bold rounded-pill shadow">GUARDAR CLIENTE</button></div>
     </form></div>
 </div></div></div>
 
-<div class="modal fade" id="modalResumen" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow-lg">
-    <div class="modal-header bg-primary text-white border-0"><h5 class="modal-title fw-bold">Resumen de Cuenta</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+<div class="modal fade" id="modalResumen" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow-lg rounded-4">
+    <div class="modal-header bg-primary text-white border-0 py-3"><h5 class="modal-title fw-bold">Resumen de Cuenta</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body text-center p-4">
         <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width:80px;height:80px;font-size:2rem;font-weight:bold;color:#102A57;" id="modal-avatar-res"></div>
-        <h4 class="fw-bold mb-0" id="modal-nombre"></h4>
-        <p class="text-muted" id="modal-dni"></p>
-        <hr>
+        <h4 class="fw-bold mb-0" id="modal-nombre"></h4><p class="text-muted" id="modal-dni"></p><hr>
         <div class="row g-3">
             <div class="col-6"><div class="p-3 bg-light rounded"><div class="small text-muted">Deuda</div><div class="h5 fw-bold text-danger mb-0" id="modal-deuda"></div></div></div>
             <div class="col-6"><div class="p-3 bg-light rounded"><div class="small text-muted">Puntos</div><div class="h5 fw-bold text-warning mb-0" id="modal-puntos"></div></div></div>
         </div>
-        <div class="d-grid mt-4"><a href="#" id="btn-ir-cuenta" class="btn btn-primary fw-bold shadow">VER CUENTA CORRIENTE</a></div>
+        <div class="d-grid mt-4"><a href="#" id="btn-ir-cuenta" class="btn btn-primary fw-bold shadow py-2 rounded-pill">VER CUENTA CORRIENTE</a></div>
     </div>
 </div></div></div>
 
-<?php include 'includes/layout_footer.php'; ?>
-
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/intlTelInput.min.js"></script>
 <script>
-    const clientesDB = <?php echo json_encode($clientes_json, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+    var clientesDB = <?php echo json_encode($clientes_json); ?>;
+    const phoneInput = window.intlTelInput(document.querySelector("#telefono_input"), { 
+        initialCountry: "ar", preferredCountries: ["ar", "bo", "cl", "py", "uy"], 
+        separateDialCode: true, utilsScript: "https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/js/utils.js" 
+    });
 
-    function abrirModalCrear() { 
-        document.getElementById('formCliente').reset(); 
-        document.getElementById('id_edit').value = ''; 
-        document.getElementById('titulo-modal').innerText = "Nuevo Cliente"; 
-        const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGestionCliente'));
-        m.show();
-    }
-
+    function abrirModalCrear() { $('#formCliente')[0].reset(); $('#id_edit').val(''); $('#titulo-modal').text("Nuevo Cliente"); $('#modalGestionCliente').modal('show'); }
     function editar(id) { 
-        const data = clientesDB[id];
-        if(!data) return;
-        document.getElementById('id_edit').value = data.id; 
-        document.getElementById('nombre').value = data.nombre; 
-        document.getElementById('dni').value = data.dni; 
-        document.getElementById('telefono').value = data.telefono;
-        document.getElementById('fecha_nacimiento').value = data.fecha_nacimiento;
-        document.getElementById('email').value = data.email;
-        document.getElementById('limite').value = data.limite;
-        document.getElementById('direccion').value = data.direccion;
-        document.getElementById('usuario_form').value = data.usuario;
-        document.getElementById('titulo-modal').innerText = "Editar Cliente"; 
-        const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGestionCliente'));
-        m.show();
+        var d = clientesDB[id]; $('#id_edit').val(d.id); $('#nombre').val(d.nombre); $('#dni').val(d.dni); $('#email').val(d.email); $('#direccion').val(d.direccion); $('#limite').val(d.limite); $('#usuario_form').val(d.usuario); $('#fecha_nacimiento').val(d.fecha_nacimiento);
+        phoneInput.setNumber(d.telefono || ''); $('#titulo-modal').text("Editar Cliente"); $('#modalGestionCliente').modal('show');
     }
-
     function verResumen(id) { 
-        const data = clientesDB[id];
-        if(!data) return;
-        document.getElementById('modal-nombre').innerText = data.nombre; 
-        document.getElementById('modal-dni').innerText = 'DNI: ' + data.dni; 
-        document.getElementById('modal-avatar-res').innerText = data.nombre.substring(0,2).toUpperCase(); 
-        document.getElementById('modal-deuda').innerText = '$' + Number(data.deuda).toLocaleString('es-AR'); 
-        document.getElementById('modal-puntos').innerText = data.puntos; 
-        document.getElementById('btn-ir-cuenta').href = 'cuenta_cliente.php?id=' + data.id; 
-        const m = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalResumen'));
-        m.show();
+        var d = clientesDB[id]; $('#modal-nombre').text(d.nombre); $('#modal-dni').text('DNI: ' + d.dni); $('#modal-avatar-res').text(d.nombre.substring(0,2).toUpperCase()); $('#modal-deuda').text('$' + Number(d.deuda).toLocaleString('es-AR')); $('#modal-puntos').text(d.puntos); $('#btn-ir-cuenta').attr('href', 'cuenta_cliente.php?id=' + d.id); $('#modalResumen').modal('show');
     }
+    $('#formCliente').submit(function(){ $('#telefono_final').val(phoneInput.getNumber()); });
+    function filtrarClientes() { var val = $('#buscador').val().toUpperCase(); $('.cliente-row').each(function(){ $(this).toggle($(this).text().toUpperCase().indexOf(val) > -1); }); }
+    function borrarCliente(id) { Swal.fire({ title: '¿Eliminar?', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí' }).then((r) => { if (r.isConfirmed) window.location.href = 'clientes.php?borrar=' + id; }); }
 
-    function filtrarClientes() { 
-        let val = document.getElementById('buscador').value.toUpperCase(); 
-        document.querySelectorAll('.cliente-row').forEach(row => {
-            row.style.display = row.innerText.toUpperCase().includes(val) ? '' : 'none';
-        });
-    }
-
-    function borrarCliente(id) { 
-        if(typeof Swal !== 'undefined') {
-            Swal.fire({ 
-                title: '¿Eliminar cliente?', 
-                text: "Esta acción no se puede deshacer",
-                icon: 'warning', 
-                showCancelButton: true, 
-                confirmButtonColor: '#d33',
-                confirmButtonText: 'Sí, eliminar',
-                cancelButtonText: 'Cancelar'
-            }).then((r) => { 
-                if (r.isConfirmed) window.location.href = 'clientes.php?borrar=' + id + '&token=<?php echo $_SESSION['csrf_token']; ?>'; 
-            }); 
-        } else {
-            if(confirm('¿Eliminar cliente?')) window.location.href = 'clientes.php?borrar=' + id + '&token=<?php echo $_SESSION['csrf_token']; ?>';
-        }
-    }
-
-    // Sugerencia de usuario automática
     document.getElementById('nombre').addEventListener('input', function(e) {
-        if(document.getElementById('id_edit').value === '') {
-            let parts = e.target.value.trim().toLowerCase().split(/\s+/);
-            if(parts.length >= 2) {
-                let suggested = (parts[0].charAt(0) + parts[parts.length - 1]).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-                document.getElementById('usuario_form').value = suggested;
-            }
+        if($('#id_edit').val() === '') {
+            var parts = e.target.value.trim().toLowerCase().split(' ');
+            if(parts.length >= 2) $('#usuario_form').val((parts[0].charAt(0) + parts[parts.length - 1]).replace(/[^a-z0-9]/g, ""));
         }
     });
 </script>
+<?php include 'includes/layout_footer.php'; ?>

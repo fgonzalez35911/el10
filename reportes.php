@@ -76,11 +76,21 @@ $sqlTop = "SELECT p.descripcion, SUM(d.cantidad) as cant FROM detalle_ventas d J
 $top_productos = $conexion->query($sqlTop)->fetchAll(PDO::FETCH_ASSOC);
 $usuarios_db = $conexion->query("SELECT * FROM usuarios")->fetchAll(PDO::FETCH_ASSOC);
 
-$color_sistema = '#102A57'; // Hardcodeado para evitar el error de BD
+
+
+$color_sistema = '#102A57';
+try {
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+    if ($resColor) {
+        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+    }
+} catch (Exception $e) { }
 
 // INICIO DEL HTML
 include 'includes/layout_header.php'; ?>
-</div> <div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100%;">
+</div>
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
     <i class="bi bi-graph-up-arrow bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex justify-content-between align-items-start mb-4">

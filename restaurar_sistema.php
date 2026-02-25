@@ -1,5 +1,5 @@
 <?php
-// restaurar_sistema.php - MÁQUINA DEL TIEMPO V2 (Limpieza Previa)
+// restaurar_sistema.php - MÁQUINA DEL TIEMPO V3 (Restauración + Eliminación)
 session_start();
 require_once 'includes/db.php';
 
@@ -10,6 +10,24 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] != 1) {
 $mensaje = "";
 $tipo_mensaje = "";
 
+// 1. LÓGICA DE ELIMINACIÓN DE BACKUPS (NUEVO)
+if (isset($_POST['eliminar_archivos'])) {
+    $archivos_json = json_decode($_POST['eliminar_archivos'], true);
+    $borrados = 0;
+    if (is_array($archivos_json)) {
+        foreach ($archivos_json as $file) {
+            $file_path = 'backups/' . basename($file); // Seguridad anti-salto de directorio
+            if (file_exists($file_path)) {
+                unlink($file_path);
+                $borrados++;
+            }
+        }
+        $mensaje = "¡Excelente! Se eliminaron $borrados copia(s) de seguridad.";
+        $tipo_mensaje = "success";
+    }
+}
+
+// 2. LÓGICA DE RESTAURACIÓN (INTACTA)
 if (isset($_POST['restaurar_archivo'])) {
     $nombre_archivo = basename($_POST['restaurar_archivo']);
     $ruta_archivo = 'backups/' . $nombre_archivo;
@@ -25,39 +43,31 @@ if (isset($_POST['restaurar_archivo'])) {
             $lineas = file($ruta_archivo);
 
             foreach ($lineas as $linea) {
-                if (substr($linea, 0, 2) == '--' || trim($linea) == '' || substr($linea, 0, 2) == '/*') {
-                    continue;
-                }
-
+                if (substr($linea, 0, 2) == '--' || trim($linea) == '' || substr($linea, 0, 2) == '/*') continue;
                 $temp_query .= $linea;
 
                 if (substr(trim($linea), -1, 1) == ';') {
-                    // LÓGICA QUIRÚRGICA: Si el backup no tiene DROP TABLE, lo forzamos
                     if (stripos($temp_query, 'CREATE TABLE') !== false) {
                         preg_match('/CREATE TABLE `?([a-zA-Z0-9_]+)`?/i', $temp_query, $matches);
                         if (isset($matches[1])) {
                             $tabla_nombre = $matches[1];
-                            $conexion->query("DROP TABLE IF EXISTS `$tabla_nombre` text");
+                            $conexion->query("DROP TABLE IF EXISTS `$tabla_nombre`");
                         }
                     }
-
                     $conexion->query($temp_query);
                     $temp_query = '';
                 }
             }
-
             $conexion->query("SET FOREIGN_KEY_CHECKS = 1");
             
             $check = $conexion->query("SELECT nombre_negocio FROM configuracion WHERE id = 1")->fetch();
-            
             if ($check) {
-                $mensaje = "¡Sistema Restaurado! '" . htmlspecialchars($check->nombre_negocio) . "' vuelve a estar en cancha.";
+                $mensaje = "¡Sistema Restaurado! '" . htmlspecialchars($check->nombre_negocio) . "' vuelve a estar operativo.";
                 $tipo_mensaje = "success";
             } else {
                 $mensaje = "Restauración completada, pero la tabla de configuración está vacía.";
                 $tipo_mensaje = "warning";
             }
-
         } catch (Exception $e) {
             $mensaje = "Error crítico: " . $e->getMessage();
             $tipo_mensaje = "danger";
@@ -65,7 +75,7 @@ if (isset($_POST['restaurar_archivo'])) {
     }
 }
 
-// (El resto del código de listado se mantiene igual...)
+// 3. LECTURA DE ARCHIVOS DE BACKUP
 $backups = [];
 if (is_dir('backups')) {
     $archivos = scandir('backups', SCANDIR_SORT_DESCENDING);
@@ -88,7 +98,7 @@ if (is_dir('backups')) {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 class="font-cancha mb-0 text-primary"><i class="bi bi-clock-history"></i> Máquina del Tiempo</h2>
-            <p class="text-muted mb-0">Restaura el sistema con limpieza automática de tablas.</p>
+            <p class="text-muted mb-0">Restaura o elimina copias de seguridad del sistema.</p>
         </div>
         <a href="reset_sistema.php" class="btn btn-outline-danger fw-bold rounded-pill">
             <i class="bi bi-trash3"></i> Ir a Resetear
@@ -102,17 +112,25 @@ if (is_dir('backups')) {
     <?php endif; ?>
 
     <div class="card shadow-sm border-0 rounded-4">
-        <div class="card-header bg-dark text-white fw-bold py-3 px-4">Copias Disponibles</div>
+        <div class="card-header bg-dark text-white fw-bold py-3 px-4 d-flex justify-content-between align-items-center">
+            <span>Copias Disponibles (<?php echo count($backups); ?>)</span>
+            <button id="btnBorrarMasivo" class="btn btn-sm btn-danger fw-bold rounded-pill d-none" onclick="borrarSeleccionados()">
+                <i class="bi bi-trash-fill"></i> Eliminar Seleccionados
+            </button>
+        </div>
         <div class="card-body p-0">
             <?php if(empty($backups)): ?>
-                <div class="text-center py-5 text-muted">No hay backups.</div>
+                <div class="text-center py-5 text-muted">No hay backups guardados en el servidor.</div>
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
-                            <tr class="small text-uppercase">
-                                <th class="ps-4">Archivo</th>
-                                <th>Fecha</th>
+                            <tr class="small text-uppercase text-muted">
+                                <th class="text-center" style="width: 50px;">
+                                    <input type="checkbox" id="checkAll" class="form-check-input shadow-sm" onchange="toggleAllCheckboxes(this)">
+                                </th>
+                                <th class="ps-2">Archivo</th>
+                                <th>Fecha y Hora</th>
                                 <th>Peso</th>
                                 <th class="text-end pe-4">Acciones</th>
                             </tr>
@@ -120,16 +138,22 @@ if (is_dir('backups')) {
                         <tbody>
                             <?php foreach($backups as $b): ?>
                             <tr>
-                                <td class="ps-4 fw-bold text-primary">
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input shadow-sm chk-backup" value="<?php echo htmlspecialchars($b['nombre']); ?>" onchange="verificarSeleccion()">
+                                </td>
+                                <td class="ps-2 fw-bold text-primary">
                                     <i class="bi bi-database-fill me-2"></i> <?php echo htmlspecialchars($b['nombre']); ?>
                                 </td>
-                                <td class="small text-muted"><?php echo $b['fecha']; ?></td>
-                                <td><span class="badge bg-secondary"><?php echo $b['peso']; ?></span></td>
-                                <td class="text-end pe-4">
-                                    <form method="POST" class="d-inline" onsubmit="return confirm('¿RESTAURAR ESTE ESTADO?');">
+                                <td class="small text-muted fw-bold"><?php echo $b['fecha']; ?></td>
+                                <td><span class="badge bg-secondary opacity-75"><?php echo $b['peso']; ?></span></td>
+                                <td class="text-end pe-4 text-nowrap">
+                                    <form method="POST" class="d-inline" onsubmit="return confirm('¿ALERTA: Vas a reescribir toda la base de datos actual con este archivo. ¿Estás seguro?');">
                                         <input type="hidden" name="restaurar_archivo" value="<?php echo htmlspecialchars($b['nombre']); ?>">
-                                        <button type="submit" class="btn btn-primary btn-sm rounded-pill fw-bold px-3">Restaurar</button>
+                                        <button type="submit" class="btn btn-primary btn-sm rounded-pill fw-bold px-3 shadow-sm me-1"><i class="bi bi-arrow-counterclockwise"></i> Restaurar</button>
                                     </form>
+                                    <button type="button" class="btn btn-outline-danger btn-sm rounded-circle shadow-sm" onclick="borrarIndividual('<?php echo htmlspecialchars($b['nombre']); ?>')" title="Eliminar Backup">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
@@ -140,5 +164,71 @@ if (is_dir('backups')) {
         </div>
     </div>
 </div>
+
+<form id="formDelete" method="POST" style="display: none;">
+    <input type="hidden" name="eliminar_archivos" id="inputArchivosEliminar">
+</form>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+    // JS Lógica de Checkboxes
+    function toggleAllCheckboxes(source) {
+        let checkboxes = document.querySelectorAll('.chk-backup');
+        checkboxes.forEach(chk => chk.checked = source.checked);
+        verificarSeleccion();
+    }
+
+    function verificarSeleccion() {
+        let checkboxes = document.querySelectorAll('.chk-backup:checked');
+        let btnBorrar = document.getElementById('btnBorrarMasivo');
+        if (checkboxes.length > 0) {
+            btnBorrar.classList.remove('d-none');
+            btnBorrar.innerHTML = `<i class="bi bi-trash-fill"></i> Eliminar Seleccionados (${checkboxes.length})`;
+        } else {
+            btnBorrar.classList.add('d-none');
+        }
+    }
+
+    // JS Lógica de Borrado Individual
+    function borrarIndividual(nombreArchivo) {
+        Swal.fire({
+            title: '¿Eliminar Backup?',
+            text: "Se borrará permanentemente del servidor.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Sí, eliminar archivo'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('inputArchivosEliminar').value = JSON.stringify([nombreArchivo]);
+                document.getElementById('formDelete').submit();
+            }
+        });
+    }
+
+    // JS Lógica de Borrado Masivo
+    function borrarSeleccionados() {
+        let checkboxes = document.querySelectorAll('.chk-backup:checked');
+        let archivos = Array.from(checkboxes).map(chk => chk.value);
+        
+        if (archivos.length === 0) return;
+
+        Swal.fire({
+            title: `¿Eliminar ${archivos.length} archivos?`,
+            text: "Esta acción no se puede deshacer.",
+            icon: 'error',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Sí, eliminar todo'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('inputArchivosEliminar').value = JSON.stringify(archivos);
+                document.getElementById('formDelete').submit();
+            }
+        });
+    }
+</script>
 
 <?php include 'includes/layout_footer.php'; ?>

@@ -1,5 +1,5 @@
 <?php
-// historial_cajas.php - AUDITORÍA INTERACTIVA (VERSIÓN CORREGIDA)
+// historial_cajas.php - AUDITORÍA INTERACTIVA (VERSIÓN ESTÁNDAR)
 session_start();
 require_once 'includes/db.php';
 
@@ -13,19 +13,15 @@ if (isset($_GET['ajax_detalle'])) {
     $id_ses = intval($_GET['ajax_detalle']);
     
     try {
-        // 1. Cabecera de Caja
         $stmtC = $conexion->prepare("SELECT c.*, u.nombre_completo FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE c.id = ?");
         $stmtC->execute([$id_ses]);
         $caja = $stmtC->fetch(PDO::FETCH_ASSOC);
-
         if (!$caja) { echo json_encode(['status' => 'error']); exit; }
 
-        // 2. Ventas por método
         $stmtV = $conexion->prepare("SELECT metodo_pago, SUM(total) as monto FROM ventas WHERE id_caja_sesion = ? AND estado='completada' GROUP BY metodo_pago");
         $stmtV->execute([$id_ses]);
         $ventas = $stmtV->fetchAll(PDO::FETCH_ASSOC);
 
-        // 3. Gastos y su Suma Total (Evita el NaN)
         $stmtG = $conexion->prepare("SELECT descripcion, monto, categoria FROM gastos WHERE id_caja_sesion = ?");
         $stmtG->execute([$id_ses]);
         $gastos = $stmtG->fetchAll(PDO::FETCH_ASSOC);
@@ -49,15 +45,21 @@ if (isset($_GET['ajax_detalle'])) {
 // === B. LÓGICA DE CARGA NORMAL ===
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (!empty($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 
-$sql = "SELECT c.*, u.usuario, u.nombre_completo FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id ORDER BY c.id DESC LIMIT 50";
-$cajas = $conexion->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+// FILTROS DESDE / HASTA
+$desde = $_GET['desde'] ?? date('Y-m-01');
+$hasta = $_GET['hasta'] ?? date('Y-m-t');
+
+$sql = "SELECT c.*, u.usuario, u.nombre_completo FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE DATE(c.fecha_apertura) >= ? AND DATE(c.fecha_apertura) <= ? ORDER BY c.id DESC";
+$stmt = $conexion->prepare($sql);
+$stmt->execute([$desde, $hasta]);
+$cajas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $total_ventas_hist = 0; $dif_neta = 0; $cajas_con_error = 0;
 foreach($cajas as $c) {
@@ -71,23 +73,37 @@ foreach($cajas as $c) {
 
 <?php include 'includes/layout_header.php'; ?>
 
-<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
-    <i class="bi bi-clock-history bg-icon-large"></i>
-    <div class="container position-relative">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
+    <i class="bi bi-clock-history bg-icon-large" style="z-index: 0;"></i>
+    <div class="container position-relative" style="z-index: 2;">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
             <div>
                 <h2 class="font-cancha mb-0 text-white">Historial de Cajas</h2>
                 <p class="opacity-75 mb-0 text-white small">Auditoría microscópica de cierres y control de diferencias.</p>
             </div>
             <div class="d-flex gap-2">
-                <a href="dashboard.php" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm">VOLVER</a>
-                <a href="cierre_caja.php" class="btn btn-warning fw-bold rounded-pill px-4 shadow-sm">CAJA ACTUAL</a>
+                <a href="dashboard.php" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm"><i class="bi bi-arrow-left me-2"></i> VOLVER</a>
+                <a href="#" onclick="Swal.fire('Próximamente', 'Reporte PDF de cajas en desarrollo', 'info')" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm"><i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF</a>
             </div>
+        </div>
+
+        <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">
+            <form method="GET" class="d-flex align-items-center gap-3 mb-0">
+                <div class="d-flex align-items-center">
+                    <span class="small fw-bold text-white text-uppercase me-2">Desde:</span>
+                    <input type="date" name="desde" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $desde; ?>" required style="max-width: 150px;">
+                </div>
+                <div class="d-flex align-items-center">
+                    <span class="small fw-bold text-white text-uppercase me-2">Hasta:</span>
+                    <input type="date" name="hasta" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $hasta; ?>" required style="max-width: 150px;">
+                </div>
+                <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow"><i class="bi bi-search me-2"></i> FILTRAR</button>
+            </form>
         </div>
 
         <div class="row g-3">
             <div class="col-12 col-md-4"><div class="header-widget">
-                <div><div class="widget-label">Ventas (Últ. 50)</div><div class="widget-value text-white">$<?php echo number_format($total_ventas_hist, 0, ',', '.'); ?></div></div>
+                <div><div class="widget-label">Ventas Filtradas</div><div class="widget-value text-white">$<?php echo number_format($total_ventas_hist, 0, ',', '.'); ?></div></div>
                 <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-cash-stack"></i></div>
             </div></div>
             <div class="col-12 col-md-4"><div class="header-widget">
@@ -95,7 +111,7 @@ foreach($cajas as $c) {
                 <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-intersect"></i></div>
             </div></div>
             <div class="col-12 col-md-4"><div class="header-widget">
-                <div><div class="widget-label">Alertas</div><div class="widget-value text-white"><?php echo $cajas_con_error; ?></div></div>
+                <div><div class="widget-label">Alertas de Error</div><div class="widget-value text-white"><?php echo $cajas_con_error; ?></div></div>
                 <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-exclamation-octagon"></i></div>
             </div></div>
         </div>
@@ -110,16 +126,19 @@ foreach($cajas as $c) {
                     <tr><th class="ps-4">ID</th><th>Responsable</th><th>Apertura/Cierre</th><th class="text-end">Ventas</th><th class="text-center">Estado</th><th class="text-end pe-4">Acciones</th></tr>
                 </thead>
                 <tbody>
+                    <?php if(empty($cajas)): ?>
+                        <tr><td colspan="6" class="text-center py-5 text-muted">No se encontraron cajas en estas fechas.</td></tr>
+                    <?php endif; ?>
                     <?php foreach($cajas as $c): 
                         $dif = floatval($c['diferencia']);
-                        $apertura = date('d/m H:i', strtotime($c['fecha_apertura']));
-                        $cierre = $c['fecha_cierre'] ? date('d/m H:i', strtotime($c['fecha_cierre'])) : '-';
+                        $apertura = date('d/m/y H:i', strtotime($c['fecha_apertura']));
+                        $cierre = $c['fecha_cierre'] ? date('d/m/y H:i', strtotime($c['fecha_cierre'])) : '-';
                         $badge = ($c['estado'] == 'abierta') ? '<span class="badge bg-primary">ABIERTA</span>' : (abs($dif) < 0.01 ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-danger">ERROR</span>');
                     ?>
                     <tr style="cursor: pointer;" onclick="abrirAuditoria(<?php echo $c['id']; ?>)">
                         <td class="ps-4">#<?php echo $c['id']; ?></td>
                         <td><div class="fw-bold"><?php echo htmlspecialchars($c['usuario']); ?></div></td>
-                        <td><div class="small">Entrada: <?php echo $apertura; ?><br>Salida: <?php echo $cierre; ?></div></td>
+                        <td><div class="small">In: <?php echo $apertura; ?><br>Out: <?php echo $cierre; ?></div></td>
                         <td class="text-end fw-bold">$<?php echo number_format($c['total_ventas'], 2, ',', '.'); ?></td>
                         <td class="text-center"><?php echo $badge; ?></td>
                         <td class="text-end pe-4"><button class="btn btn-sm btn-outline-primary rounded-pill px-3">AUDITAR</button></td>

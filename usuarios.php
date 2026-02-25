@@ -90,12 +90,13 @@ $total_activos = $conexion->query("SELECT COUNT(*) FROM usuarios WHERE activo = 
 $usuarios = $conexion->query("SELECT u.*, r.nombre as nombre_rol FROM usuarios u JOIN roles r ON u.id_rol = r.id ORDER BY u.id_rol ASC")->fetchAll(PDO::FETCH_ASSOC);
 $roles_db = $conexion->query("SELECT * FROM roles")->fetchAll(PDO::FETCH_ASSOC);
 // OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
+
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 ?>
@@ -104,7 +105,8 @@ try {
 
 
 
-<div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important;">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+
     <i class="bi bi-people bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">

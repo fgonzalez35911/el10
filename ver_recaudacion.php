@@ -11,12 +11,13 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) {
 $hoy = date('Y-m-d');
 
 // 1. OBTENER CONFIGURACIÓN VISUAL (Para el banner dinámico)
+
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (!empty($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 

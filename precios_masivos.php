@@ -54,6 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirmar_aumento'])) 
             $detalles = "Aumento Masivo del $porcentaje% en " . strtoupper($accion) . " aplicado a " . count($ids) . " productos del grupo " . strtoupper($tipo_filtro) . ": " . $nombre_grupo;
             $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'INFLACION', ?, NOW())")
                      ->execute([$_SESSION['usuario_id'], $detalles]);
+            $conexion->prepare("INSERT INTO historial_inflacion (fecha, porcentaje, accion, grupo_afectado, cantidad_productos, id_usuario) VALUES (NOW(), ?, ?, ?, ?, ?)")
+                     ->execute([$porcentaje, strtoupper($accion), $nombre_grupo, count($ids), $_SESSION['usuario_id']]);         
 
             $factor = 1 + ($porcentaje / 100);
             
@@ -75,12 +77,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirmar_aumento'])) 
     }
 }
 // OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
+
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 ?>
@@ -101,7 +104,8 @@ try {
     
     <?php include 'includes/layout_header.php'; ?></div>
 
-    <div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important;">
+    <div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+
     <i class="bi bi-graph-up-arrow bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -109,9 +113,14 @@ try {
                 <h2 class="font-cancha mb-0 text-white">Actualización de Precios</h2>
                 <p class="opacity-75 mb-0 text-white small">Ajuste masivo de precios por inflación.</p>
             </div>
-            <a href="productos.php" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm">
-                <i class="bi bi-arrow-left me-2"></i> VOLVER
-            </a>
+            <div>
+                <a href="historial_inflacion.php" class="btn btn-warning text-dark fw-bold rounded-pill px-4 shadow-sm me-2">
+                    <i class="bi bi-clock-history me-2"></i> HISTORIAL
+                </a>
+                <a href="productos.php" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm">
+                    <i class="bi bi-arrow-left me-2"></i> VOLVER
+                </a>
+            </div>
         </div>
 
         <div class="row g-3">

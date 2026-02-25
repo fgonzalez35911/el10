@@ -77,10 +77,10 @@ $productos = $conexion->query($sql)->fetchAll();
 // OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 
@@ -105,7 +105,8 @@ foreach($productos as $p) {
 
 
 
-<div class="header-blue">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+
     <i class="bi bi-grid-3x3-gap-fill bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">

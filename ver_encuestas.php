@@ -67,19 +67,21 @@ try {
     $lista = []; $total = 0; $promedio = 0; $felices = 0;
 }
 // OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
+
 $color_sistema = '#102A57';
 try {
-    $resColor = $conexion->query("SELECT color_principal FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_principal'])) $color_sistema = $dataC['color_principal'];
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 ?>
 
 <?php include 'includes/layout_header.php'; ?></div>
 
-<div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important;">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+
     <i class="bi bi-chat-quote-fill bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex justify-content-between align-items-center mb-4">

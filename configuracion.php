@@ -156,13 +156,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
 $conf = $conexion->query("SELECT * FROM configuracion LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 $afip = $conexion->query("SELECT * FROM afip_config WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 
-// Color por defecto si no existe en BD
-// Leemos la columna real de tu base de datos (color_barra_nav)
-$color_sistema = $conf['color_barra_nav'] ?? '#102A57';
+$color_sistema = '#102A57';
+try {
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+    if ($resColor) {
+        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+    }
+} catch (Exception $e) { }
 
 include 'includes/layout_header.php'; ?></div>
 
-<div class="header-blue" style="background-color: <?php echo $color_sistema; ?> !important; padding: 40px 0; border-radius: 0;">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
     <i class="bi bi-gear bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex justify-content-between align-items-start mb-4">

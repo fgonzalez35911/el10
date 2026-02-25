@@ -1,22 +1,39 @@
 <?php
-// proveedores.php - VERSIÓN PREMIUM COMPLETA (163 LÍNEAS ORIGINALES)
+// proveedores.php - VERSIÓN CON SELECTOR DE PAÍSES
 session_start();
 require_once 'includes/db.php';
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
-// 1. TU LÓGICA DE DATOS (Sin borrar ni una coma)
+$color_sistema = '#102A57';
+try {
+    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+    if ($resColor) {
+        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
+        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+    }
+} catch (Exception $e) { }
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $empresa = trim($_POST['empresa']); $contacto = trim($_POST['contacto']); $telefono = trim($_POST['telefono']); $id_edit = $_POST['id_edit'] ?? '';
+    $empresa = trim($_POST['empresa']); 
+    $contacto = trim($_POST['contacto']); 
+    
+    // ARMADO DE TELÉFONO CON CÓDIGO DE PAÍS
+    $cod_pais = trim($_POST['cod_pais'] ?? '54');
+    $tel_numero = trim($_POST['telefono']);
+    $telefono_final = !empty($tel_numero) ? '+' . $cod_pais . $tel_numero : '';
+    
+    $email = trim($_POST['email'] ?? ''); 
+    $id_edit = $_POST['id_edit'] ?? '';
+    
     if (!empty($empresa)) {
         try {
             if ($id_edit) {
-                $conexion->prepare("UPDATE proveedores SET empresa=?, contacto=?, telefono=? WHERE id=?")->execute([$empresa, $contacto, $telefono, $id_edit]);
-                $msg = 'actualizado';
+                $conexion->prepare("UPDATE proveedores SET empresa=?, contacto=?, telefono=?, email=? WHERE id=?")->execute([$empresa, $contacto, $telefono_final, $email, $id_edit]);
+                header("Location: proveedores.php?msg=actualizado"); exit;
             } else {
-                $conexion->prepare("INSERT INTO proveedores (empresa, contacto, telefono) VALUES (?, ?, ?)")->execute([$empresa, $contacto, $telefono]);
-                $msg = 'creado';
+                $conexion->prepare("INSERT INTO proveedores (empresa, contacto, telefono, email) VALUES (?, ?, ?, ?)")->execute([$empresa, $contacto, $telefono_final, $email]);
+                header("Location: proveedores.php?msg=creado"); exit;
             }
-            header("Location: proveedores.php?msg=" . $msg); exit;
         } catch (Exception $e) { $error = "Error: " . $e->getMessage(); }
     }
 }
@@ -30,36 +47,79 @@ if (isset($_GET['borrar'])) {
 }
 
 $proveedores = $conexion->query("SELECT p.*, (SELECT COUNT(*) FROM productos WHERE id_proveedor = p.id AND activo=1) as cant_productos FROM proveedores p ORDER BY p.empresa ASC")->fetchAll(PDO::FETCH_ASSOC);
+$deuda_global = $conexion->query("SELECT SUM(CASE WHEN tipo = 'compra' THEN monto ELSE -monto END) FROM movimientos_proveedores")->fetchColumn() ?: 0;
 
 require_once 'includes/layout_header.php'; 
 ?>
 
-<div class="header-blue" style="background: #102A57 !important; border-radius: 0 0 30px 30px !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
+<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
     <i class="bi bi-truck bg-icon-large"></i>
     <div class="container position-relative">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div><h2 class="font-cancha mb-0 text-white">Proveedores</h2><p class="opacity-75 mb-0 text-white small">Gestión de abastecimiento.</p></div>
+            <div>
+                <h2 class="font-cancha mb-0 text-white">Proveedores</h2>
+                <p class="opacity-75 mb-0 text-white small">Gestión de abastecimiento y saldos.</p>
+            </div>
             <button class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModal()">+ NUEVO PROVEEDOR</button>
         </div>
-        <div class="row g-3"><div class="col-md-12"><div class="header-widget"><div><div class="widget-label">Empresas Registradas</div><div class="widget-value text-white"><?php echo count($proveedores); ?></div></div><div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-building"></i></div></div></div></div>
+
+        <div class="row g-3">
+            <div class="col-6 col-md-4">
+                <div class="header-widget">
+                    <div><div class="widget-label">Registrados</div><div class="widget-value text-white"><?php echo count($proveedores); ?></div></div>
+                    <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-building"></i></div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="header-widget">
+                    <div><div class="widget-label">Deuda Global</div><div class="widget-value text-white">$<?php echo number_format($deuda_global, 0, ',', '.'); ?></div></div>
+                    <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-cash-stack"></i></div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="header-widget" onclick="location.href='importador_maestro.php'" style="cursor:pointer; background: rgba(255,255,255,0.1) !important;">
+                    <div><div class="widget-label text-warning">Acciones</div><div class="widget-value text-white" style="font-size:1.1rem">IMPORTAR PRODUCTOS</div></div>
+                    <div class="icon-box bg-warning bg-opacity-20 text-white"><i class="bi bi-file-earmark-arrow-up"></i></div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <div class="container mt-4 pb-5">
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
-        <div class="card-header bg-white py-3 border-0"><input type="text" id="buscador" class="form-control bg-light border-0" placeholder="Buscar..." onkeyup="filtrarTabla()"></div>
+        <div class="card-header bg-white py-3 border-0">
+            <input type="text" id="buscador" class="form-control bg-light border-0" placeholder="Buscar por empresa o contacto..." onkeyup="filtrarTabla()">
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="tablaProveedores">
-                <thead class="bg-light text-muted small uppercase"><tr><th class="ps-4">Empresa</th><th>Contacto</th><th>Catálogo</th><th class="text-end pe-4">Acciones</th></tr></thead>
+                <thead class="bg-light text-muted small text-uppercase">
+                    <tr><th class="ps-4">Empresa</th><th>Contacto / Teléfono</th><th class="text-center d-none d-md-table-cell">Stock</th><th class="text-end pe-4">Acciones</th></tr>
+                </thead>
                 <tbody>
                     <?php foreach($proveedores as $p): ?>
                     <tr>
-                        <td class="ps-4 py-3"><div class="fw-bold"><?php echo $p['empresa']; ?></div></td>
-                        <td><div class="small fw-bold"><?php echo $p['contacto']; ?></div><div class="small text-muted"><?php echo $p['telefono']; ?></div></td>
-                        <td><span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3"><?php echo $p['cant_productos']; ?> Prod.</span></td>
-                        <td class="text-end pe-4">
-                            <button class="btn btn-sm btn-outline-primary rounded-circle" onclick='editar(<?php echo json_encode($p); ?>)'><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-sm btn-outline-danger rounded-circle" onclick="confirmarBorrar(<?php echo $p['id']; ?>, '<?php echo $p['empresa']; ?>')"><i class="bi bi-trash"></i></button>
+                        <td class="ps-4 py-3"><div class="fw-bold text-dark fs-6"><?php echo $p['empresa']; ?></div><small class="text-muted">ID #<?php echo $p['id']; ?></small></td>
+                        <td>
+                            <div class="small fw-bold text-dark"><?php echo $p['contacto'] ?: 'Sin contacto'; ?></div>
+                            <div class="small text-muted"><i class="bi bi-whatsapp me-1"></i><?php echo $p['telefono'] ?: '-'; ?></div>
+                            <?php if(!empty($p['email'])): ?><div class="small text-primary"><i class="bi bi-envelope"></i> <?php echo $p['email']; ?></div><?php endif; ?>
+                        </td>
+                        <td class="text-center d-none d-md-table-cell"><span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3"><?php echo $p['cant_productos']; ?> SKU</span></td>
+                        <td class="text-end pe-4 text-nowrap">
+                            <a href="cuenta_proveedor.php?id=<?php echo $p['id']; ?>" class="btn btn-sm btn-dark rounded-pill px-2 px-md-3 me-1 shadow-sm" title="Ver Cuenta">
+                                <i class="bi bi-receipt"></i> <span class="d-none d-md-inline">CTA. CTE.</span>
+                            </a>
+                            <button class="btn btn-sm btn-outline-primary rounded-circle me-1" 
+                                    data-id="<?php echo $p['id']; ?>"
+                                    data-empresa="<?php echo htmlspecialchars($p['empresa']); ?>"
+                                    data-contacto="<?php echo htmlspecialchars($p['contacto']); ?>"
+                                    data-telefono="<?php echo htmlspecialchars($p['telefono'] ?? ''); ?>"
+                                    data-email="<?php echo htmlspecialchars($p['email'] ?? ''); ?>"
+                                    onclick="editarProv(this)" title="Editar">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger rounded-circle" onclick="confirmarBorrar(<?php echo $p['id']; ?>, '<?php echo addslashes($p['empresa']); ?>')" title="Eliminar"><i class="bi bi-trash"></i></button>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -70,18 +130,124 @@ require_once 'includes/layout_header.php';
 </div>
 
 <div class="modal fade" id="modalProveedor" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered"><div class="modal-content rounded-4 border-0 shadow-lg">
-        <div class="modal-header bg-primary text-white border-0"><h5 class="fw-bold mb-0" id="modalTitulo">Nuevo Proveedor</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body p-4"><form method="POST" id="formProveedor"><input type="hidden" name="id_edit" id="id_edit"><div class="mb-3"><label class="small fw-bold text-muted">Empresa</label><input type="text" name="empresa" id="empresa" class="form-control rounded-3" required></div><div class="row g-3"><div class="col-6"><label class="small fw-bold text-muted">Contacto</label><input type="text" name="contacto" id="contacto" class="form-control rounded-3"></div><div class="col-6"><label class="small fw-bold text-muted">Teléfono</label><input type="text" name="telefono" id="telefono" class="form-control rounded-3"></div></div><div class="d-grid mt-4"><button type="submit" class="btn btn-primary btn-lg fw-bold rounded-pill">GUARDAR</button></div></form></div>
-    </div></div>
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white border-0"><h5 class="fw-bold mb-0" id="modalTitulo">Nuevo Proveedor</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body p-4">
+                <form method="POST" id="formProveedor">
+                    <input type="hidden" name="id_edit" id="id_edit">
+                    <div class="mb-3"><label class="small fw-bold text-muted">Empresa</label><input type="text" name="empresa" id="empresa" class="form-control rounded-3" required></div>
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6"><label class="small fw-bold text-muted">Contacto</label><input type="text" name="contacto" id="contacto" class="form-control rounded-3"></div>
+                        
+                        <div class="col-12 col-md-6">
+                            <label class="small fw-bold text-muted">Teléfono (WhatsApp)</label>
+                            <div class="input-group">
+                                <select name="cod_pais" id="cod_pais" class="form-select bg-light border-end-0 fw-bold" style="max-width: 95px;" required>
+                                    <option value="54" data-iso="ar" data-name="ARG">+54</option>
+                                    <option value="598" data-iso="uy" data-name="URY">+598</option>
+                                    <option value="595" data-iso="py" data-name="PRY">+595</option>
+                                    <option value="56" data-iso="cl" data-name="CHL">+56</option>
+                                    <option value="591" data-iso="bo" data-name="BOL">+591</option>
+                                    <option value="55" data-iso="br" data-name="BRA">+55</option>
+                                    <option value="51" data-iso="pe" data-name="PER">+51</option>
+                                    <option value="57" data-iso="co" data-name="COL">+57</option>
+                                    <option value="52" data-iso="mx" data-name="MEX">+52</option>
+                                    <option value="34" data-iso="es" data-name="ESP">+34</option>
+                                    <option value="1" data-iso="us" data-name="USA">+1</option>
+                                </select>
+                                <input type="number" name="telefono" id="telefono" class="form-control px-2" placeholder="1123456789">
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-2"><label class="small fw-bold text-muted">Correo Electrónico (Tickets)</label><input type="email" name="email" id="email" class="form-control rounded-3" placeholder="proveedor@ejemplo.com"></div>
+                    </div>
+                    <div class="d-grid mt-4"><button type="submit" class="btn btn-primary btn-lg fw-bold rounded-pill">GUARDAR CAMBIOS</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
-    let modalProv; document.addEventListener('DOMContentLoaded', () => { modalProv = new bootstrap.Modal(document.getElementById('modalProveedor')); });
-    function abrirModal() { document.getElementById('formProveedor').reset(); document.getElementById('id_edit').value = ''; document.getElementById('modalTitulo').innerText = 'Nuevo Proveedor'; modalProv.show(); }
-    function editar(p) { document.getElementById('id_edit').value = p.id; document.getElementById('empresa').value = p.empresa; document.getElementById('contacto').value = p.contacto; document.getElementById('telefono').value = p.telefono; document.getElementById('modalTitulo').innerText = 'Editar Proveedor'; modalProv.show(); }
-    function confirmarBorrar(id, n) { Swal.fire({ title: '¿Eliminar a ' + n + '?', text: 'Irreversible.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, eliminar', confirmButtonColor: '#d33' }).then((r) => { if (r.isConfirmed) window.location.href = 'proveedores.php?borrar=' + id; }); }
+    let modalProv; 
+    document.addEventListener('DOMContentLoaded', () => { modalProv = new bootstrap.Modal(document.getElementById('modalProveedor')); });
+    
+    function abrirModal() { 
+        document.getElementById('formProveedor').reset(); 
+        document.getElementById('id_edit').value = ''; 
+        document.getElementById('modalTitulo').innerText = 'Nuevo Proveedor'; 
+        document.getElementById('cod_pais').value = '54'; 
+        modalProv.show(); 
+    }
+    
+    // JS Inteligente para desarmar el teléfono y poner la bandera correcta al editar
+    function editarProv(btn) { 
+        document.getElementById('id_edit').value = btn.getAttribute('data-id'); 
+        document.getElementById('empresa').value = btn.getAttribute('data-empresa'); 
+        document.getElementById('contacto').value = btn.getAttribute('data-contacto'); 
+        
+        let t = btn.getAttribute('data-telefono') || '';
+        let cod = '54'; let num = t;
+        if(t.startsWith('+')) {
+            const codes = ['54', '598', '595', '56', '591', '55', '51', '57', '52', '34', '1'];
+            for(let c of codes) {
+                if(t.startsWith('+' + c)) { cod = c; num = t.substring(c.length + 1); break; }
+            }
+        } else {
+            num = t.replace(/[^0-9]/g, '');
+        }
+        
+        document.getElementById('cod_pais').value = cod;
+        document.getElementById('telefono').value = num;
+        document.getElementById('email').value = btn.getAttribute('data-email'); 
+        document.getElementById('modalTitulo').innerText = 'Editar Proveedor'; 
+        modalProv.show(); 
+    }
+    
+    function confirmarBorrar(id, n) { Swal.fire({ title: '¿Eliminar a ' + n + '?', text: 'Solo si no tiene productos.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, eliminar', confirmButtonColor: '#d33' }).then((r) => { if (r.isConfirmed) window.location.href = 'proveedores.php?borrar=' + id; }); }
     function filtrarTabla() { const f = document.getElementById('buscador').value.toLowerCase(); document.querySelectorAll('#tablaProveedores tbody tr').forEach(r => { r.style.display = r.innerText.toLowerCase().includes(f) ? '' : 'none'; }); }
+
+    if(new URLSearchParams(window.location.search).get('msg')) {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Operación Exitosa', showConfirmButton: false, timer: 2000 });
+    }
+</script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<style>
+    /* CSS Ajustado para Letra más chica y proporcionada */
+    .select2-container .select2-selection--single { 
+        height: 38px !important; border: 1px solid #dee2e6 !important; 
+        border-radius: 0.375rem 0 0 0.375rem !important; 
+        display: flex; align-items: center; background-color: #f8f9fa; font-size: 13px !important; 
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px !important; }
+    .select2-results__option { font-size: 12px !important; }
+</style>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    $(document).ready(function() {
+        // Formato Lista (Muestra Abreviatura, ej: ARG)
+        function formatoBanderaLista(pais) {
+            if (!pais.id) return pais.text;
+            let iso = pais.element.getAttribute('data-iso');
+            let nombre = pais.element.getAttribute('data-name');
+            return $('<span><img src="https://flagcdn.com/w20/' + iso + '.png" style="width:16px; margin-right:4px; margin-bottom:1px;" />' + nombre + '</span>');
+        }
+        // Formato Cerrado (Solo muestra la foto y el número +54)
+        function formatoBanderaCerrado(pais) {
+            if (!pais.id) return pais.text;
+            let iso = pais.element.getAttribute('data-iso');
+            return $('<span><img src="https://flagcdn.com/w20/' + iso + '.png" style="width:16px; margin-right:2px; margin-bottom:1px;" />' + pais.text + '</span>');
+        }
+
+        $('#cod_pais').select2({
+            templateResult: formatoBanderaLista,
+            templateSelection: formatoBanderaCerrado,
+            minimumResultsForSearch: Infinity,
+            dropdownParent: $('#modalProveedor')
+        });
+    });
 </script>
 <?php include 'includes/layout_footer.php'; ?>
