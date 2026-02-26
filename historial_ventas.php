@@ -1,16 +1,25 @@
 <?php
-// historial_ventas.php - GESTIÓN INTEGRAL (CON FILTRO FECHAS Y REPORTE)
+// historial_ventas.php - GESTIÓN INTEGRAL (CON CANDADOS)
 session_start();
 require_once 'includes/db.php';
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_historial_ventas', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 $color_sistema = '#102A57';
 try {
     $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+        if ($dataC && isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
     }
 } catch (Exception $e) { }
 

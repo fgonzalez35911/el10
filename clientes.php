@@ -10,6 +10,15 @@ foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; bre
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = ($_SESSION['rol'] <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_clientes', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
+
 // 2. LÓGICA DE ACCIONES
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
     $nombre    = trim($_POST['nombre'] ?? '');
@@ -22,6 +31,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
     $user_form = trim($_POST['usuario_form'] ?? '');
     $id_edit   = $_POST['id_edit'] ?? '';
 
+    // Candados POST (Evita hackeos)
+    if ($id_edit && !$es_admin && !in_array('editar_cliente', $permisos)) die("Sin permiso para editar.");
+    if (!$id_edit && !$es_admin && !in_array('crear_cliente', $permisos)) die("Sin permiso para crear.");
+
     if (!empty($nombre) && !empty($dni) && !empty($email)) {
         try {
             $tel_val = !empty($telefono) ? $telefono : null;
@@ -29,25 +42,63 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
             $nac_val = !empty($fecha_nac) ? $fecha_nac : null;
 
             if ($id_edit) {
+                // --- AUDITORÍA ANTES/DESPUÉS ---
+                $stmtOld = $conexion->prepare("SELECT * FROM clientes WHERE id = ?");
+                $stmtOld->execute([$id_edit]);
+                $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
+
+                $cambios = [];
+                if($old['nombre'] != $nombre) $cambios[] = "Nombre: " . $old['nombre'] . " -> " . $nombre;
+                if($old['dni'] != $dni) $cambios[] = "DNI: " . ($old['dni']?:'-') . " -> " . $dni;
+                if($old['telefono'] != $tel_val) $cambios[] = "Tel: " . ($old['telefono']?:'-') . " -> " . ($tel_val?:'-');
+                if($old['email'] != $email) $cambios[] = "Email: " . ($old['email']?:'-') . " -> " . $email;
+                if($old['direccion'] != $dir_val) $cambios[] = "Dir: " . ($old['direccion']?:'-') . " -> " . ($dir_val?:'-');
+                if($old['fecha_nacimiento'] != $nac_val) $cambios[] = "Nac: " . ($old['fecha_nacimiento']?:'-') . " -> " . ($nac_val?:'-');
+                if(floatval($old['limite_credito']) != $limite) $cambios[] = "Límite Fiado: $" . floatval($old['limite_credito']) . " -> $" . $limite;
+                if($old['usuario'] != $user_form) $cambios[] = "Usuario Web: " . ($old['usuario']?:'-') . " -> " . ($user_form?:'-');
+
                 $sql = "UPDATE clientes SET nombre=?, telefono=?, email=?, direccion=?, dni=?, dni_cuit=?, limite_credito=?, fecha_nacimiento=?, usuario=? WHERE id=?";
                 $conexion->prepare($sql)->execute([$nombre, $tel_val, $email, $dir_val, $dni, $dni, $limite, $nac_val, $user_form, $id_edit]);
+
+                if(!empty($cambios)) {
+                    $detalles_audit = "Cliente Editado: " . $old['nombre'] . " | " . implode(" | ", $cambios);
+                    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CLIENTE_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles_audit]);
+                }
+
             } else {
                 $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, email, fecha_nacimiento, limite_credito, usuario, direccion, fecha_registro, saldo_deudor, puntos_acumulados) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0)";
                 $conexion->prepare($sql)->execute([$nombre, $dni, $dni, $tel_val, $email, $nac_val, $limite, $user_form, $dir_val]);
+                
+                $detalles_audit = "Cliente Nuevo: " . $nombre . " (DNI: " . $dni . ")";
+                $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CLIENTE_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles_audit]);
             }
+
             header("Location: clientes.php?msg=ok"); exit;
+            
         } catch (Exception $e) { die("Error Crítico DB: " . $e->getMessage()); }
     }
 }
 
 // 3. BORRADO
 if (isset($_GET['borrar'])) {
+    if (!$es_admin && !in_array('eliminar_cliente', $permisos)) die("Sin permiso para eliminar.");
     $id_b = intval($_GET['borrar']);
     try {
+        // Rescatar datos antes de borrar para la auditoría
+        $stmtDel = $conexion->prepare("SELECT nombre, dni FROM clientes WHERE id = ?");
+        $stmtDel->execute([$id_b]);
+        $oldDel = $stmtDel->fetch(PDO::FETCH_ASSOC);
+
         $conexion->prepare("UPDATE ventas SET id_cliente = 1 WHERE id_cliente = ?")->execute([$id_b]);
         $conexion->prepare("DELETE FROM movimientos_cc WHERE id_cliente = ?")->execute([$id_b]);
         $conexion->prepare("DELETE FROM clientes WHERE id = ?")->execute([$id_b]);
+
+        if($oldDel) {
+            $d_aud = "Cliente Eliminado: " . $oldDel['nombre'] . " (DNI: " . $oldDel['dni'] . ")";
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CLIENTE_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
+        }
+
         header("Location: clientes.php?msg=eliminado"); exit;
     } catch (Exception $e) { header("Location: clientes.php?error=db"); exit; }
 }
@@ -105,9 +156,11 @@ include 'includes/layout_header.php';
                 <h2 class="font-cancha mb-0 text-white">Cartera de Clientes</h2>
                 <p class="opacity-75 mb-0 text-white small">Gestión de cuentas y fidelización</p>
             </div>
+            <?php if($es_admin || in_array('crear_cliente', $permisos)): ?>
             <button type="button" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModalCrear()">
                 <i class="bi bi-person-plus-fill me-2"></i> NUEVO CLIENTE
             </button>
+            <?php endif; ?>
         </div>
         <div class="row g-3">
             <div class="col-12 col-md-4">
@@ -175,11 +228,22 @@ include 'includes/layout_header.php';
                 <td class="small text-muted"><?php echo $c['ultima_venta_fecha'] ? date('d/m/y', strtotime($c['ultima_venta_fecha'])) : 'Nunca'; ?></td>
                 <td class="text-end pe-4">
                     <div class="d-flex justify-content-end gap-2">
-                        <button type="button" class="btn btn-sm btn-light text-info rounded-circle" onclick="verResumen(<?php echo $c['id']; ?>)"><i class="bi bi-eye"></i></button>
-                        <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" class="btn btn-sm btn-light text-primary rounded-circle"><i class="bi bi-wallet2"></i></a>
-                        <button type="button" class="btn btn-sm btn-light text-warning rounded-circle" onclick="editar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
-                        <button type="button" class="btn btn-sm btn-light text-danger rounded-circle" onclick="borrarCliente(<?php echo $c['id']; ?>)"><i class="bi bi-trash"></i></button>
-                    </div>
+                            <?php if($es_admin || in_array('resumen_cliente', $permisos)): ?>
+                            <button type="button" class="btn btn-sm btn-light text-info rounded-circle" onclick="verResumen(<?php echo $c['id']; ?>)"><i class="bi bi-eye"></i></button>
+                            <?php endif; ?>
+                            
+                            <?php if($es_admin || in_array('cuenta_cliente', $permisos)): ?>
+                            <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" class="btn btn-sm btn-light text-primary rounded-circle"><i class="bi bi-wallet2"></i></a>
+                            <?php endif; ?>
+                            
+                            <?php if($es_admin || in_array('editar_cliente', $permisos)): ?>
+                            <button type="button" class="btn btn-sm btn-light text-warning rounded-circle" onclick="editar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
+                            <?php endif; ?>
+                            
+                            <?php if($es_admin || in_array('eliminar_cliente', $permisos)): ?>
+                            <button type="button" class="btn btn-sm btn-light text-danger rounded-circle" onclick="borrarCliente(<?php echo $c['id']; ?>)"><i class="bi bi-trash"></i></button>
+                            <?php endif; ?>
+                        </div>
                 </td>
             </tr>
             <?php endforeach; ?>

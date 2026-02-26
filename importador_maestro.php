@@ -8,8 +8,10 @@ session_start();
 $rutas_db = [__DIR__ . '/db.php', __DIR__ . '/includes/db.php', 'db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
-// 2. SEGURIDAD
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+if (!$es_admin && !in_array('importacion_masiva', $permisos)) { header("Location: dashboard.php"); exit; }
 
 $mensaje = ""; $tipo_mensaje = "";
 

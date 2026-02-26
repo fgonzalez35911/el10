@@ -10,6 +10,15 @@ foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; bre
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_encuestas', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
+
 // 2. CONSTRUIR FILTROS
 $where = "WHERE 1=1";
 $params = [];

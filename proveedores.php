@@ -1,8 +1,16 @@
 <?php
-// proveedores.php - VERSIÓN CON SELECTOR DE PAÍSES
+// proveedores.php - VERSIÓN CON CANDADOS DE SEGURIDAD
 session_start();
 require_once 'includes/db.php';
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = ($_SESSION['rol'] <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_proveedores', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 $color_sistema = '#102A57';
 try {
@@ -16,22 +24,40 @@ try {
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $empresa = trim($_POST['empresa']); 
     $contacto = trim($_POST['contacto']); 
-    
-    // ARMADO DE TELÉFONO CON CÓDIGO DE PAÍS
     $cod_pais = trim($_POST['cod_pais'] ?? '54');
     $tel_numero = trim($_POST['telefono']);
     $telefono_final = !empty($tel_numero) ? '+' . $cod_pais . $tel_numero : '';
-    
     $email = trim($_POST['email'] ?? ''); 
     $id_edit = $_POST['id_edit'] ?? '';
     
+    // Validar permisos antes de guardar
+    if ($id_edit && !$es_admin && !in_array('editar_proveedor', $permisos)) die("Error: Sin permiso para editar.");
+    if (!$id_edit && !$es_admin && !in_array('crear_proveedor', $permisos)) die("Error: Sin permiso para crear.");
+
     if (!empty($empresa)) {
         try {
             if ($id_edit) {
+                $stmtOld = $conexion->prepare("SELECT empresa, contacto, telefono, email FROM proveedores WHERE id = ?");
+                $stmtOld->execute([$id_edit]);
+                $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
+
+                $cambios = [];
+                if($old['empresa'] != $empresa) $cambios[] = "Empresa: " . $old['empresa'] . " -> " . $empresa;
+                if($old['contacto'] != $contacto) $cambios[] = "Contacto: " . ($old['contacto']?:'-') . " -> " . ($contacto?:'-');
+                if($old['telefono'] != $telefono_final) $cambios[] = "Tel: " . ($old['telefono']?:'-') . " -> " . ($telefono_final?:'-');
+                if($old['email'] != $email) $cambios[] = "Email: " . ($old['email']?:'-') . " -> " . ($email?:'-');
+
                 $conexion->prepare("UPDATE proveedores SET empresa=?, contacto=?, telefono=?, email=? WHERE id=?")->execute([$empresa, $contacto, $telefono_final, $email, $id_edit]);
+                
+                if(!empty($cambios)) {
+                    $d_aud = "Proveedor Editado: " . $empresa . " | " . implode(" | ", $cambios);
+                    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PROVEEDOR_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
+                }
                 header("Location: proveedores.php?msg=actualizado"); exit;
             } else {
                 $conexion->prepare("INSERT INTO proveedores (empresa, contacto, telefono, email) VALUES (?, ?, ?, ?)")->execute([$empresa, $contacto, $telefono_final, $email]);
+                $d_aud = "Proveedor Nuevo: " . $empresa; 
+                $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PROVEEDOR_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
                 header("Location: proveedores.php?msg=creado"); exit;
             }
         } catch (Exception $e) { $error = "Error: " . $e->getMessage(); }
@@ -39,10 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 if (isset($_GET['borrar'])) {
+    if (!$es_admin && !in_array('eliminar_proveedor', $permisos)) die("Error: Sin permiso para eliminar.");
+    
     $stmt = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE id_proveedor = ? AND activo = 1");
     $stmt->execute([$_GET['borrar']]);
     if ($stmt->fetchColumn() > 0) { header("Location: proveedores.php?error=tiene_productos"); exit; }
+    
     $conexion->prepare("DELETE FROM proveedores WHERE id = ?")->execute([$_GET['borrar']]);
+    $d_aud = "Proveedor Eliminado (ID: " . $_GET['borrar'] . ")"; 
+    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PROVEEDOR_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
     header("Location: proveedores.php?msg=eliminado"); exit;
 }
 
@@ -60,7 +91,9 @@ require_once 'includes/layout_header.php';
                 <h2 class="font-cancha mb-0 text-white">Proveedores</h2>
                 <p class="opacity-75 mb-0 text-white small">Gestión de abastecimiento y saldos.</p>
             </div>
+            <?php if($es_admin || in_array('crear_proveedor', $permisos)): ?>
             <button class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModal()">+ NUEVO PROVEEDOR</button>
+            <?php endif; ?>
         </div>
 
         <div class="row g-3">
@@ -76,12 +109,14 @@ require_once 'includes/layout_header.php';
                     <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-cash-stack"></i></div>
                 </div>
             </div>
+            <?php if($es_admin || in_array('importacion_masiva', $permisos)): ?>
             <div class="col-12 col-md-4">
                 <div class="header-widget" onclick="location.href='importador_maestro.php'" style="cursor:pointer; background: rgba(255,255,255,0.1) !important;">
                     <div><div class="widget-label text-warning">Acciones</div><div class="widget-value text-white" style="font-size:1.1rem">IMPORTAR PRODUCTOS</div></div>
                     <div class="icon-box bg-warning bg-opacity-20 text-white"><i class="bi bi-file-earmark-arrow-up"></i></div>
                 </div>
             </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -107,9 +142,13 @@ require_once 'includes/layout_header.php';
                         </td>
                         <td class="text-center d-none d-md-table-cell"><span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3"><?php echo $p['cant_productos']; ?> SKU</span></td>
                         <td class="text-end pe-4 text-nowrap">
+                            <?php if($es_admin || in_array('cuenta_proveedor', $permisos)): ?>
                             <a href="cuenta_proveedor.php?id=<?php echo $p['id']; ?>" class="btn btn-sm btn-dark rounded-pill px-2 px-md-3 me-1 shadow-sm" title="Ver Cuenta">
                                 <i class="bi bi-receipt"></i> <span class="d-none d-md-inline">CTA. CTE.</span>
                             </a>
+                            <?php endif; ?>
+
+                            <?php if($es_admin || in_array('editar_proveedor', $permisos)): ?>
                             <button class="btn btn-sm btn-outline-primary rounded-circle me-1" 
                                     data-id="<?php echo $p['id']; ?>"
                                     data-empresa="<?php echo htmlspecialchars($p['empresa']); ?>"
@@ -119,7 +158,11 @@ require_once 'includes/layout_header.php';
                                     onclick="editarProv(this)" title="Editar">
                                 <i class="bi bi-pencil"></i>
                             </button>
+                            <?php endif; ?>
+
+                            <?php if($es_admin || in_array('eliminar_proveedor', $permisos)): ?>
                             <button class="btn btn-sm btn-outline-danger rounded-circle" onclick="confirmarBorrar(<?php echo $p['id']; ?>, '<?php echo addslashes($p['empresa']); ?>')" title="Eliminar"><i class="bi bi-trash"></i></button>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

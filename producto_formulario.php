@@ -46,27 +46,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $es_destacado = isset($_POST['es_destacado_web']) ? 1 : 0;
 
         if ($id) {
-            // Obtener stock anterior para auditoría
-            $stmtOld = $conexion->prepare("SELECT stock_actual, descripcion FROM productos WHERE id = ?");
+            // Obtener TODOS los datos anteriores para auditoría completa
+            $stmtOld = $conexion->prepare("SELECT * FROM productos WHERE id = ?");
             $stmtOld->execute([$id]);
-            $prodOld = $stmtOld->fetch(PDO::FETCH_ASSOC);
-            $stock_anterior = floatval($prodOld['stock_actual']);
+            $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
 
+            // Actualización
             $sql = "UPDATE productos SET codigo_barras=?, descripcion=?, id_categoria=?, id_proveedor=?, precio_costo=?, precio_venta=?, precio_oferta=?, stock_actual=?, stock_minimo=?, fecha_vencimiento=?, dias_alerta=?, es_vegano=?, es_celiaco=?, es_destacado_web=? WHERE id=?";
             $stmt = $conexion->prepare($sql);
             $stmt->execute([$codigo, $descripcion, $id_cat, $id_prov, $p_costo, $p_venta, $p_oferta, $s_actual, $s_min, $f_venc, $d_alerta, $es_vegano, $es_celiaco, $es_destacado, $id]);
 
-            // Si el stock cambió manualmente, registrar en auditoría
-            if ($stock_anterior != floatval($s_actual)) {
-                $detalles_audit = "Ajuste manual de stock para '" . $prodOld['descripcion'] . "': " . $stock_anterior . " -> " . $s_actual;
-                $stmtAudit = $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'AJUSTE_STOCK_MANUAL', ?, NOW())");
-                $stmtAudit->execute([$_SESSION['usuario_id'], $detalles_audit]);
+            // Detección Quirúrgica
+            $cambios = [];
+            if($old['descripcion'] != $descripcion) $cambios[] = "Nombre: " . $old['descripcion'] . " -> " . $descripcion;
+            if(floatval($old['precio_costo']) != floatval($p_costo)) $cambios[] = "Costo: $" . floatval($old['precio_costo']) . " -> $" . floatval($p_costo);
+            if(floatval($old['precio_venta']) != floatval($p_venta)) $cambios[] = "Venta: $" . floatval($old['precio_venta']) . " -> $" . floatval($p_venta);
+            if(floatval($old['precio_oferta']) != floatval($p_oferta)) $cambios[] = "Oferta: $" . floatval($old['precio_oferta']) . " -> $" . floatval($p_oferta);
+            if(floatval($old['stock_minimo']) != floatval($s_min)) $cambios[] = "Stock Mínimo: " . floatval($old['stock_minimo']) . " -> " . floatval($s_min);
+            
+            // Stock (Ajuste manual) lo separamos como crítica
+            if(floatval($old['stock_actual']) != floatval($s_actual)) {
+                $detalles_audit_stock = "Ajuste manual de stock para '" . $descripcion . "': " . floatval($old['stock_actual']) . " -> " . floatval($s_actual);
+                $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'AJUSTE_STOCK_MANUAL', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles_audit_stock]);
             }
+            
+            // Si hubo cambios en precios o nombre, registramos en PRODUCTO_EDITADO
+            if(!empty($cambios)) {
+                $detalles_audit_prod = "Producto Editado: " . $descripcion . " | " . implode(" | ", $cambios);
+                $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PRODUCTO_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles_audit_prod]);
+            }
+        
         } else {
             $sql = "INSERT INTO productos (codigo_barras, descripcion, id_categoria, id_proveedor, precio_costo, precio_venta, precio_oferta, stock_actual, stock_minimo, fecha_vencimiento, dias_alerta, es_vegano, es_celiaco, es_destacado_web) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             $stmt = $conexion->prepare($sql);
             $stmt->execute([$codigo, $descripcion, $id_cat, $id_prov, $p_costo, $p_venta, $p_oferta, $s_actual, $s_min, $f_venc, $d_alerta, $es_vegano, $es_celiaco, $es_destacado]);
         }
+        $accion_audit = $id ? 'PRODUCTO_EDITADO' : 'PRODUCTO_NUEVO';
+        $detalles_audit = ($id ? "Editado: " : "Creado: ") . $descripcion . " | Costo: $" . $p_costo . " | Venta: $" . $p_venta;
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, ?, ?, NOW())")->execute([$_SESSION['usuario_id'], $accion_audit, $detalles_audit]);
         echo "<script>window.location.href='productos.php?msg=ok';</script>"; exit;
     } catch (Exception $e) { die("Error: " . $e->getMessage()); }
 }

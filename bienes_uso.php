@@ -1,5 +1,5 @@
 <?php
-// bienes_uso.php - VERSIÓN ESTANDARIZADA (FILTROS + PDF)
+// bienes_uso.php - VERSIÓN ESTANDARIZADA CON CANDADOS
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -10,7 +10,15 @@ else { die("Error crítico: No se encuentra db.php"); }
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado de Página
+if (!$es_admin && !in_array('ver_activos', $permisos)) { header("Location: dashboard.php"); exit; }
+
 if (isset($_GET['borrar'])) {
+    if (!$es_admin && !in_array('eliminar_activo', $permisos)) die("Sin permiso para eliminar.");
     try {
         $id = $_GET['borrar'];
         $stmtFoto = $conexion->prepare("SELECT foto FROM bienes_uso WHERE id = ?");
@@ -24,6 +32,9 @@ if (isset($_GET['borrar'])) {
 
 $mensaje = '';
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $id_edit = $_POST['id_edit'] ?? '';
+    if ($id_edit && !$es_admin && !in_array('editar_activo', $permisos)) die("Sin permiso para editar.");
+    if (!$id_edit && !$es_admin && !in_array('crear_activo', $permisos)) die("Sin permiso para crear.");
     try {
         $nombre = trim($_POST['nombre']);
         $marca = trim($_POST['marca']);
@@ -62,7 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->execute([$nombre, $marca, $modelo, $serie, $estado, $ubicacion, $fecha, $costo, $notas, $ruta_foto]);
             $mensaje = 'creado';
         }
+
+        $accion_audit = !empty($id_edit) ? 'BIEN EDITADO' : 'BIEN NUEVO';
+        $detalles_audit = "Bien de Uso: " . $nombre . " | Estado: " . $estado;
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, ?, ?, NOW())")->execute([$_SESSION['usuario_id'], $accion_audit, $detalles_audit]);
         header("Location: bienes_uso.php?msg=" . $mensaje); exit;
+        
     } catch (PDOException $e) { $mensaje = "Error: " . $e->getMessage(); }
 }
 
@@ -115,12 +131,17 @@ try {
                 <p class="opacity-75 mb-0 text-white small">Control de inventario y equipos.</p>
             </div>
             <div class="d-flex gap-2">
+                <?php if($es_admin || in_array('crear_activo', $permisos)): ?>
                 <button class="btn btn-light text-primary fw-bold rounded-pill px-3 shadow-sm" onclick="abrirModalCrear()">
                     <i class="bi bi-plus-lg me-1"></i> NUEVO
                 </button>
+                <?php endif; ?>
+                
+                <?php if($es_admin || in_array('reporte_activos', $permisos)): ?>
                 <a href="reporte_bienes.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-3 shadow-sm">
                     <i class="bi bi-file-earmark-pdf-fill me-1"></i> PDF
                 </a>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -198,13 +219,15 @@ try {
                          <?php if($a['costo_compra'] > 0): ?><div class="fw-bold text-success small">$<?php echo number_format($a['costo_compra'], 0, ',', '.'); ?></div><?php endif; ?>
                     </div>
                 </div>
-                <div class="card-footer bg-white border-top-0 d-flex justify-content-between pb-3 pt-0">
-                    <button class="btn btn-sm btn-outline-primary border-0 rounded-pill px-3" onclick='verDetalle(<?php echo $jsonItem; ?>)'><i class="bi bi-eye-fill me-1"></i> Ver</button>
-                    <div>
+                <div>
+                        <?php if($es_admin || in_array('editar_activo', $permisos)): ?>
                         <button class="btn btn-sm btn-light text-primary rounded-circle" onclick='editar(<?php echo $jsonItem; ?>)'><i class="bi bi-pencil-fill"></i></button>
+                        <?php endif; ?>
+                        
+                        <?php if($es_admin || in_array('eliminar_activo', $permisos)): ?>
                         <button class="btn btn-sm btn-light text-danger rounded-circle" onclick="confirmarBorrar(<?php echo $a['id']; ?>, '<?php echo addslashes($a['nombre']); ?>')"><i class="bi bi-trash3-fill"></i></button>
+                        <?php endif; ?>
                     </div>
-                </div>
             </div>
         </div>
         <?php endforeach; ?>

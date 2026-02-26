@@ -1,5 +1,5 @@
 <?php
-// auditoria.php - VERSIÓN ESTANDARIZADA (FILTROS + PDF + TICKET PREMIUM)
+// auditoria.php - VERSIÓN ESTANDARIZADA CON CANDADOS
 session_start();
 date_default_timezone_set('America/Argentina/Buenos_Aires');
 
@@ -7,6 +7,15 @@ $rutas_db = [__DIR__ . '/db.php', __DIR__ . '/includes/db.php', 'db.php', 'inclu
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_auditoria', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 // CONFIGURACIÓN Y FIRMA
 $conf = $conexion->query("SELECT nombre_negocio, direccion_local, cuit, logo_url, color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
@@ -39,9 +48,13 @@ $st_aud->execute($params_aud);
 $logs_todos = $st_aud->fetchAll(PDO::FETCH_ASSOC);
 
 $total_regs = count($logs_todos);
+// PAGINACIÓN DE 10 EN 10
 $pag = isset($_GET['pag']) ? (int)$_GET['pag'] : 1;
-$reg_x_pag = 100;
+if ($pag < 1) $pag = 1;
+$reg_x_pag = 10;
+$total_paginas = ceil($total_regs / $reg_x_pag);
 $inicio_limit = ($pag - 1) * $reg_x_pag;
+
 $logs = array_slice($logs_todos, $inicio_limit, $reg_x_pag);
 
 foreach ($logs as &$l) {
@@ -72,6 +85,15 @@ function getIconoReal($accion) {
     if(strpos($a, 'GASTO') !== false || strpos($a, 'EGRESO') !== false) return '<i class="bi bi-cash-stack text-danger"></i>';
     if(strpos($a, 'PRODUCTO') !== false || strpos($a, 'CANJE') !== false) return '<i class="bi bi-box-seam text-primary"></i>';
     if(strpos($a, 'ELIMINAR') !== false || strpos($a, 'BAJA') !== false) return '<i class="bi bi-trash3-fill text-danger"></i>';
+    if(strpos($a, 'SORTEO') !== false) return '<i class="bi bi-ticket-perforated-fill text-danger"></i>';
+    if(strpos($a, 'PREMIO') !== false) return '<i class="bi bi-trophy-fill text-warning"></i>';
+    if(strpos($a, 'CLIENTE') !== false) return '<i class="bi bi-person-heart text-info"></i>';
+    if(strpos($a, 'PROVEEDOR') !== false) return '<i class="bi bi-truck text-success"></i>';
+    if(strpos($a, 'USUARIO') !== false || strpos($a, 'ROL') !== false) return '<i class="bi bi-shield-lock-fill text-dark"></i>';
+    if(strpos($a, 'BIEN') !== false || strpos($a, 'ACTIVO') !== false) return '<i class="bi bi-pc-display text-secondary"></i>';
+    if(strpos($a, 'REVISTA') !== false) return '<i class="bi bi-book text-primary"></i>';
+    if(strpos($a, 'CONFIG') !== false) return '<i class="bi bi-gear-fill text-dark"></i>';
+    if(strpos($a, 'ESPERA') !== false || strpos($a, 'RECUPERADA') !== false) return '<i class="bi bi-pause-circle-fill text-secondary"></i>';
     return '<i class="bi bi-info-circle text-muted"></i>';
 }
 ?>
@@ -86,9 +108,11 @@ function getIconoReal($accion) {
                 <h2 class="font-cancha mb-0 text-white">Auditoría del Sistema</h2>
                 <p class="opacity-75 mb-0 text-white small">Caja Negra: Registro integral de movimientos y trazabilidad.</p>
             </div>
-            <a href="reporte_auditoria.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>&f_user=<?php echo $f_user; ?>&f_accion=<?php echo $f_accion; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+            <?php if($es_admin || in_array('reporte_auditoria', $permisos)): ?>
+            <a href="reporte_auditoria.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>&usuario=<?php echo $user_filter; ?>&accion=<?php echo $accion_filter; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
                 <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
             </a>
+            <?php endif; ?>
         </div>
 
         <div class="row g-3">
@@ -163,55 +187,102 @@ function getIconoReal($accion) {
                 </tbody>
             </table>
         </div>
+        
+        <?php if ($total_paginas > 1): ?>
+        <div class="card-footer bg-white border-top py-3">
+            <nav aria-label="Navegación de registros">
+                <ul class="pagination justify-content-center mb-0 pagination-sm">
+                    <?php 
+                    // Query string base para mantener los filtros al cambiar de página
+                    $query_string = "&desde=$desde&hasta=$hasta&f_user=$f_user&f_accion=$f_accion";
+                    
+                    if ($pag > 1) echo '<li class="page-item"><a class="page-link" href="?pag='.($pag-1).$query_string.'">&laquo;</a></li>';
+                    else echo '<li class="page-item disabled"><a class="page-link" href="#">&laquo;</a></li>';
+                    
+                    $inicio_rango = max(1, $pag - 2);
+                    $fin_rango = min($total_paginas, $pag + 2);
+                    
+                    for ($i = $inicio_rango; $i <= $fin_rango; $i++) {
+                        $activo = ($i == $pag) ? 'active' : '';
+                        echo '<li class="page-item '.$activo.'"><a class="page-link" href="?pag='.$i.$query_string.'">'.$i.'</a></li>';
+                    }
+                    
+                    if ($pag < $total_paginas) echo '<li class="page-item"><a class="page-link" href="?pag='.($pag+1).$query_string.'">&raquo;</a></li>';
+                    else echo '<li class="page-item disabled"><a class="page-link" href="#">&raquo;</a></li>';
+                    ?>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
 <div class="modal fade" id="modalFiltroRapido" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-4">
             <div class="modal-header border-0 py-3 bg-dark text-white">
                 <h6 class="modal-title fw-bold"><i class="bi bi-funnel-fill me-2"></i>Centro de Control de Auditoría</h6>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <div class="mb-4">
-                    <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Gestión Comercial</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('VENTA')">Ventas</button>
-                        <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('DEVOLUCION')">Devoluciones</button>
-                        <button class="btn btn-outline-warning btn-sm fw-bold text-dark" onclick="pegarYBuscar('CUPON')">Cupones</button>
-                        <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('CANJE')">Canje Puntos</button>
-                    </div>
-                </div>
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="mb-4">
+                            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Gestión Comercial</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('VENTA')">Ventas</button>
+                                <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="pegarYBuscar('ESPERA')">En Espera</button>
+<button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('RECUPERADA')">Recuperadas</button>
+                                <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('DEVOLUCION')">Devoluciones</button>
+                                <button class="btn btn-outline-warning btn-sm fw-bold text-dark" onclick="pegarYBuscar('CUPON')">Cupones</button>
+                                <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('CANJE')">Canje Puntos</button>
+                            </div>
+                        </div>
 
-                <div class="mb-4">
-                    <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Control de Inventario</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('REPOSICION')">Reposición</button>
-                        <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('MERMA')">Mermas/Bajas</button>
-                        <button class="btn btn-outline-dark btn-sm fw-bold" onclick="pegarYBuscar('AJUSTE')">Ajustes Manuales</button>
-                        <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="pegarYBuscar('INFLACION')">Aumentos Masivos</button>
-                    </div>
-                </div>
+                        <div class="mb-4">
+                            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Caja y Finanzas</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('APERTURA')">Aperturas</button>
+                                <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('CIERRE')">Cierres</button>
+                                <button class="btn btn-outline-warning btn-sm fw-bold text-dark" onclick="pegarYBuscar('GASTO')">Gastos</button>
+                                <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('PAGO')">Pagos / Deuda</button>
+                            </div>
+                        </div>
 
-                <div class="mb-4">
-                    <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Caja y Finanzas</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('APERTURA')">Aperturas</button>
-                        <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('CIERRE')">Cierres</button>
-                        <button class="btn btn-outline-warning btn-sm fw-bold text-dark" onclick="pegarYBuscar('GASTO')">Gastos</button>
-                        <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('PAGO')">Pagos Deuda</button>
+                        <div class="mb-4">
+                            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Marketing y Entidades</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('SORTEO')">Sorteos</button>
+                                <button class="btn btn-outline-warning btn-sm fw-bold text-dark" onclick="pegarYBuscar('PREMIO')">Premios</button>
+                                <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('REVISTA')">Revista</button>
+                                <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('CLIENTE')">Clientes</button>
+                                <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('PROVEEDOR')">Proveedores</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                    <div class="col-md-6">
+                        <div class="mb-4">
+                            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Control de Inventario</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('REPOSICION')">Reposición</button>
+                                <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('MERMA')">Mermas/Bajas</button>
+                                <button class="btn btn-outline-dark btn-sm fw-bold" onclick="pegarYBuscar('AJUSTE')">Ajustes Manuales</button>
+                                <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="pegarYBuscar('INFLACION')">Aumentos Masivos</button>
+                                <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('BIEN')">Bienes de Uso</button>
+                            </div>
+                        </div>
 
-                <div class="mb-3">
-                    <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Seguridad y Sistema</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-outline-dark btn-sm fw-bold" onclick="pegarYBuscar('LOGIN')">Ingresos</button>
-                        <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="pegarYBuscar('LOGOUT')">Salidas</button>
-                        <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('ELIMIN')">Eliminaciones</button>
-                        <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('ESTADO')">Estados (Act/Des)</button>
-                        <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('CONFIG')">Configuración</button>
+                        <div class="mb-3">
+                            <label class="small fw-bold text-muted text-uppercase mb-2 d-block">Seguridad y Sistema</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-outline-dark btn-sm fw-bold" onclick="pegarYBuscar('LOGIN')">Ingresos</button>
+                                <button class="btn btn-outline-secondary btn-sm fw-bold" onclick="pegarYBuscar('LOGOUT')">Salidas</button>
+                                <button class="btn btn-outline-danger btn-sm fw-bold" onclick="pegarYBuscar('ELIMIN')">Eliminaciones</button>
+                                <button class="btn btn-outline-info btn-sm fw-bold" onclick="pegarYBuscar('ESTADO')">Estados (Act/Des)</button>
+                                <button class="btn btn-outline-primary btn-sm fw-bold" onclick="pegarYBuscar('CONFIG')">Configuración</button>
+                                <button class="btn btn-outline-success btn-sm fw-bold" onclick="pegarYBuscar('USUARIO')">Usuarios</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -238,96 +309,131 @@ function getIconoReal($accion) {
         let fechaObj = new Date(log.fecha);
         let fechaF = fechaObj.toLocaleString('es-AR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
 
-        let contenidoCentral = '';
-        let pieTicket = 'REGISTRO OFICIAL DE SISTEMA';
-        let iconHeader = 'bi-shield-check';
-        let colorHeader = '#102A57';
-        
-        let nombreFirma = log.nombre_completo ? log.nombre_completo.toUpperCase() : 'FIRMA AUTORIZADA';
-        // AQUÍ ESTÁ EL ANTI-CACHÉ DE LA FIRMA PARA EL TICKET DE AUDITORÍA
-        let firmaHtml = miFirma ? `<img src="${miFirma}?v=${Date.now()}" style="max-height: 50px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${nombreFirma}</small>` : '';
-
         const accion = log.accion.toUpperCase();
+        
+        let colorHeader = '#102A57';
+        if(accion.includes('ELIMIN') || accion.includes('BAJA')) colorHeader = '#dc3545';
+        if(accion.includes('VENTA') || accion.includes('PAGO')) colorHeader = '#198754';
+        if(accion.includes('INFLACION') || accion.includes('GASTO')) colorHeader = '#fd7e14';
 
-        if (log.rich_data && log.rich_data.tipo === 'venta') {
-            let v = log.rich_data.cabecera;
-            let items = log.rich_data.items;
-            let totalF = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(v.total);
-            contenidoCentral = `
-                <div class="mb-3 border-bottom pb-2">
-                    <div class="d-flex justify-content-between small"><b>CLIENTE:</b> <span>${v.nombre_cliente ? v.nombre_cliente : 'CONSUMIDOR FINAL'}</span></div>
-                    <div class="d-flex justify-content-between small"><b>PAGO:</b> <span>${v.metodo_pago.toUpperCase()}</span></div>
-                </div>
-                <div style="font-size: 11px;">
-                    ${items.map(i => `<div class="d-flex justify-content-between border-bottom border-light py-1"><span>${parseFloat(i.cantidad)}x ${i.descripcion || 'ITEM ELIMINADO'}</span><span class="fw-bold">${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(i.subtotal)}</span></div>`).join('')}
-                </div>
-                <div class="mt-3 p-2 bg-light rounded d-flex justify-content-between align-items-center"><span class="fw-bold">TOTAL VENTA:</span><span class="fs-5 fw-bold text-success">${totalF}</span></div>`;
-            pieTicket = `COMPROBANTE DE VENTA #${log.rich_data.id_real}`;
-            iconHeader = 'bi-cart-check';
-        } else if (accion.includes('INFLACION')) {
-            colorHeader = '#dc3545'; iconHeader = 'bi-graph-up-arrow';
-            let matchInf = log.detalles.match(/del (.*?)% en (.*?) aplicado a (.*?) productos del grupo (.*?): (.*)/);
-            if (matchInf) {
-                contenidoCentral = `
-                    <div class="alert alert-danger p-2 small mb-3">Se aplicó un aumento masivo por inflación.</div>
-                    <table class="table table-sm small mb-0">
-                        <tr><td><b>PORCENTAJE:</b></td> <td class="text-end text-danger fw-bold">${matchInf[1]}%</td></tr>
-                        <tr><td><b>TIPO AJUSTE:</b></td> <td class="text-end">${matchInf[2]}</td></tr>
-                        <tr><td><b>AFECTADOS:</b></td> <td class="text-end">${matchInf[3]} productos</td></tr>
-                        <tr><td><b>GRUPO:</b></td> <td class="text-end">${matchInf[4]}</td></tr>
-                        <tr><td><b>NOMBRE:</b></td> <td class="text-end fw-bold">${matchInf[5]}</td></tr>
-                    </table>`;
-            }
-        } else if (accion.includes('CONFIG')) {
-            iconHeader = 'bi-gear-wide-connected';
-            let partes = log.detalles.split('|');
-            contenidoCentral = `
-                <div class="small fw-bold text-muted mb-3 text-center border-bottom pb-2 text-uppercase">Trazabilidad Total de Ajustes</div>
-                <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
-                    ${partes.map(p => {
-                        if(p.includes('->')) {
-                            let [titulo, valores] = p.split(':');
-                            let [antes, despues] = valores.split('->');
-                            return `<div class="list-group-item px-0 py-2 border-0 border-bottom border-light"><div class="text-muted mb-1" style="font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">${titulo.trim()}</div><div class="d-flex align-items-center gap-2"><span class="badge bg-light text-muted text-decoration-line-through fw-normal border">${antes.trim()}</span><i class="bi bi-arrow-right text-primary small"></i><span class="fw-bold text-dark" style="font-size:13px;">${despues.trim()}</span></div></div>`;
-                        } else {
-                            return `<div class="list-group-item px-0 py-2 small text-muted italic border-0">${p}</div>`;
-                        }
-                    }).join('')}
-                </div>`;
-        } else if (accion.includes('REPOSICION')) {
-            iconHeader = 'bi-box-seam';
-            let matchRep = log.detalles.match(/REPOSICIÓN: \+(.*?) unidades para '(.*?)'\. Proveedor: (.*?)(?: \| (.*))?$/);
-            if (matchRep) {
-                contenidoCentral = `
-                    <div class="text-center mb-3"><div class="display-6 fw-bold text-primary">+${matchRep[1]}</div><div class="small fw-bold">${matchRep[2]}</div></div>
-                    <div class="bg-light p-2 rounded small"><b>PROVEEDOR:</b> ${matchRep[3]}<br>${matchRep[4] ? `<b>INFO EXTRA:</b> ${matchRep[4]}` : ''}</div>`;
-            }
-        } else if (accion.includes('ESTADO')) {
-            iconHeader = 'bi-toggle-on'; colorHeader = '#0dcaf0';
-            let [prod, estado] = log.detalles.split('->');
-            contenidoCentral = `<div class="text-center p-3 bg-light rounded border"><div class="small fw-bold text-muted text-uppercase mb-1">${prod ? prod.trim() : 'Item'}</div><div class="h5 mb-0 fw-bold ${estado && estado.includes('ACTIVADO') ? 'text-success' : 'text-danger'}">${estado ? estado.trim() : ''}</div></div>`;
-            pieTicket = 'CONTROL DE VISIBILIDAD';
-        } else {
-            contenidoCentral = `<div class="p-3 bg-light rounded small" style="border-left: 4px solid ${colorHeader}; line-height: 1.6;">${log.detalles.replace(/\|/g, '<br>')}</div>`;
-        }
+        let nombreFirma = log.nombre_completo ? log.nombre_completo.toUpperCase() : 'FIRMA AUTORIZADA';
+        
+        // FIRMA DINÁMICA CON DOBLE ANTI-CACHÉ ABSOLUTO
+        let ts = Date.now();
+        let urlFirmaDinamica = `img/firmas/usuario_${log.id_usuario}.png`;
+        let urlFirmaAdmin = `img/firmas/firma_admin.png`;
+        
+        let firmaHtml = `<div style="display:flex; flex-direction:column; align-items:center;">
+                            <img src="${urlFirmaDinamica}?v=${ts}" onerror="this.onerror=null; this.src='${urlFirmaAdmin}?v=${ts}'" style="max-height: 55px; margin-bottom: -8px; position: relative; z-index: 10;">
+                            <div style="border-top:1px solid #000; width:100%; position: relative; z-index: 1;"></div>
+                            <small style="font-size:9px; font-weight:bold; margin-top: 3px;">${nombreFirma}</small>
+                         </div>`;
+        
+        let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}?v=${ts}" style="max-height: 50px; margin-bottom: 10px;">` : '';
+        
+        // LINK PÚBLICO Y CÓDIGO QR
+        let linkPdfPublico = window.location.origin + window.location.pathname.replace('auditoria.php', '') + "ticket_auditoria_pdf.php?id=" + log.id;
+        let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
 
-        Swal.fire({
-            html: `
-                <div style="text-align: left; font-family: 'Inter', sans-serif;">
-                    <div class="d-flex align-items-center mb-4 pb-3 border-bottom" style="gap: 15px;">
-                        <div style="background: ${colorHeader}; color: white; width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px;"><i class="bi ${iconHeader}"></i></div>
-                        <div><h5 class="mb-0 fw-bold" style="color: ${colorHeader};">${accion}</h5><small class="text-muted">${fechaF}</small></div>
-                    </div>
+        let contenidoCentral = `<div style="font-size: 12px; line-height: 1.5;">${log.detalles.replace(/\|/g, '<br>')}</div>`;
+
+        let ticketHTML = `
+            <div id="printTicketAudit" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
+                <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 15px; margin-bottom: 15px;">
+                    ${logoHtml}
+                    <h4 style="font-weight: 900; margin: 0; text-transform: uppercase;">${miLocal.nombre_negocio}</h4>
+                    <small style="color: #666;">CUIT: ${miLocal.cuit || 'S/N'}<br>${miLocal.direccion_local}</small>
+                </div>
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <h5 style="font-weight: 900; color: ${colorHeader}; letter-spacing: 1px; margin:0; text-transform: uppercase;">REGISTRO DE SISTEMA</h5>
+                    <span style="font-size: 10px; background: #eee; padding: 2px 6px; border-radius: 4px;">AUDIT #${log.id}</span>
+                </div>
+                <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 12px;">
+                    <div style="margin-bottom: 4px;"><strong>FECHA:</strong> ${fechaF}</div>
+                    <div style="margin-bottom: 4px;"><strong>ACCIÓN:</strong> <span style="color: ${colorHeader}; font-weight: bold;">${accion}</span></div>
+                    <div><strong>OPERADOR:</strong> ${(log.usuario || 'ADMIN').toUpperCase()}</div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <strong style="border-bottom: 1px solid #ccc; display:block; margin-bottom:8px; font-size: 12px;">DETALLE DEL MOVIMIENTO:</strong>
                     ${contenidoCentral}
-                    <div class="mt-4 pt-3 border-top text-center" style="display:flex; flex-direction:column; align-items:center;">
-                        <div style="margin-bottom: 10px;">${firmaHtml}</div>
-                        <span class="badge bg-dark mb-2">OPERADOR: ${log.usuario.toUpperCase()}</span>
-                        <div class="text-muted" style="font-size: 10px; letter-spacing: 1px;">ID AUDITORÍA: #${log.id} <br> ${pieTicket}</div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
+                    <div style="width: 45%; text-align: center;">${firmaHtml}</div>
+                    <div style="width: 45%; text-align: center;">
+                        <a href="${linkPdfPublico}" target="_blank">
+                            <img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;">
+                        </a>
+                        <div style="font-size: 8px; color: #999; margin-top: 3px; font-weight: bold;">ESCANEAR / CLICK</div>
                     </div>
                 </div>
-            `,
-            width: '450px', showConfirmButton: false, showCloseButton: true, customClass: { popup: 'rounded-4' }
+            </div>
+            
+            <div class="row g-2 mt-4 border-top pt-3 no-print">
+                <div class="col-6">
+                    <a href="${linkPdfPublico}" target="_blank" class="btn btn-light border text-primary fw-bold w-100 shadow-sm rounded-pill" style="font-size: 0.85rem; padding: 10px 0;">
+                        <i class="bi bi-qr-code-scan me-1"></i> VER ONLINE
+                    </a>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-primary fw-bold w-100 shadow-sm rounded-pill" onclick="mandarMailAuditoria(${log.id})" style="font-size: 0.85rem; padding: 10px 0; background-color: #102A57; border: none;">
+                        <i class="bi bi-envelope-paper me-1"></i> ENVIAR MAIL
+                    </button>
+                </div>
+            </div>
+        `;
+
+        Swal.fire({ 
+            html: ticketHTML, 
+            width: 400, 
+            showConfirmButton: false, 
+            showCloseButton: true, 
+            background: '#fff' 
         });
+    }
+
+    function mandarMailAuditoria(id_audit) {
+        Swal.fire({
+            title: 'Enviar Ticket', 
+            text: 'Email de destino:', 
+            input: 'email', 
+            showCancelButton: true, 
+            confirmButtonText: 'Enviar',
+            confirmButtonColor: '#102A57'
+        }).then((r) => {
+            if(r.isConfirmed && r.value) {
+                Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+                let fData = new FormData(); 
+                fData.append('id', id_audit); 
+                fData.append('email', r.value);
+                
+                // Ajusta la ruta a tu carpeta de acciones si es necesario
+                fetch('acciones/enviar_email_auditoria.php', { method: 'POST', body: fData })
+                .then(res => res.json()).then(d => {
+                    if(d.status === 'success') Swal.fire('¡Éxito!', 'Correo enviado correctamente.', 'success');
+                    else Swal.fire('Error', d.msg, 'error');
+                }).catch(() => Swal.fire('Error', 'Hubo un problema de red.', 'error'));
+            }
+        });
+    }
+
+    function imprimirTicket() {
+        let contenido = document.getElementById('printTicketAudit').innerHTML;
+        let ventana = window.open('', '_blank', 'width=400,height=600');
+        ventana.document.write(`
+            <html>
+                <head>
+                    <title>Imprimir Ticket Auditoría</title>
+                    <style>
+                        body { font-family: 'Inter', sans-serif; margin: 0; padding: 10px; color: #000; background: #fff; }
+                        * { box-sizing: border-box; }
+                    </style>
+                </head>
+                <body onload="window.print(); window.close();">
+                    ${contenido}
+                </body>
+            </html>
+        `);
+        ventana.document.close();
     }
 </script>
 <?php include 'includes/layout_footer.php'; ?>

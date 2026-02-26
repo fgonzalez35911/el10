@@ -1,12 +1,19 @@
 <?php
-// historial_cajas.php - AUDITORÍA INTERACTIVA (VERSIÓN ESTÁNDAR)
+// historial_cajas.php - AUDITORÍA INTERACTIVA (CON CANDADOS)
 session_start();
 require_once 'includes/db.php';
 
-if (!isset($_SESSION['usuario_id']) || (isset($_SESSION['rol']) && $_SESSION['rol'] > 2)) {
-    header("Location: dashboard.php"); exit;
-}
+if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$rol = $_SESSION['rol'] ?? 3;
+$es_admin = ($rol <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_historial_cajas', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 // === A. MOTOR DE AUDITORÍA RÁPIDA (AJAX) ===
 if (isset($_GET['ajax_detalle'])) {
     header('Content-Type: application/json');

@@ -13,11 +13,19 @@ $rol_usuario_actual = $stmtCheck->fetchColumn();
 
 if($rol_usuario_actual > 2) { header("Location: dashboard.php"); exit; }
 
-// 1. PROCESAR GUARDADO
+// 1. PROCESAR GUARDADO (CON AUDITORÍA DE LLAVES)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_permisos'])) {
     $id_rol = $_POST['id_rol'];
     $permisos_seleccionados = $_POST['permisos'] ?? [];
     try {
+        // Obtener nombre del rol
+        $nombre_rol = $conexion->query("SELECT nombre FROM roles WHERE id = $id_rol")->fetchColumn();
+
+        // Obtener permisos viejos
+        $stmtOldP = $conexion->prepare("SELECT p.clave FROM rol_permisos rp JOIN permisos p ON rp.id_permiso = p.id WHERE rp.id_rol = ?");
+        $stmtOldP->execute([$id_rol]);
+        $oldPerms = $stmtOldP->fetchAll(PDO::FETCH_COLUMN);
+
         $conexion->beginTransaction();
         $conexion->prepare("DELETE FROM rol_permisos WHERE id_rol = ?")->execute([$id_rol]);
         if (!empty($permisos_seleccionados)) {
@@ -25,6 +33,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_permisos'])) {
             foreach ($permisos_seleccionados as $p_id) { $stmtIns->execute([$id_rol, $p_id]); }
         }
         $conexion->commit();
+
+        // Obtener permisos nuevos
+        $stmtNewP = $conexion->prepare("SELECT p.clave FROM rol_permisos rp JOIN permisos p ON rp.id_permiso = p.id WHERE rp.id_rol = ?");
+        $stmtNewP->execute([$id_rol]);
+        $newPerms = $stmtNewP->fetchAll(PDO::FETCH_COLUMN);
+
+        // Comparación inteligente
+        $agregados = array_diff($newPerms, $oldPerms);
+        $quitados = array_diff($oldPerms, $newPerms);
+
+        $cambios = [];
+        if(!empty($agregados)) $cambios[] = "➕ Permisos Agregados: [" . implode(", ", $agregados) . "]";
+        if(!empty($quitados)) $cambios[] = "❌ Permisos Quitados: [" . implode(", ", $quitados) . "]";
+
+        if(!empty($cambios)) {
+            $d_aud = "Seguridad del Rol '" . strtoupper($nombre_rol) . "' modificada | " . implode(" | ", $cambios); 
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'ROL_ACTUALIZADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
+        }
+
         header("Location: roles.php?msg=ok"); exit;
     } catch (Exception $e) { $conexion->rollBack(); die("Error: " . $e->getMessage()); }
 }

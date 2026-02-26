@@ -62,6 +62,10 @@ $cont = (!empty($num)) ? $pref . $num : '';
             $sql = "INSERT INTO encuestas (nivel, comentario, cliente_nombre, contacto, fecha) VALUES (?, ?, ?, ?, NOW())";
             $stmt = $conexion->prepare($sql);
             $stmt->execute([$nivel, $com, $nom, $cont]);
+            try {
+                $detalles_audit = "Nueva encuesta recibida. Cliente: " . $nom . " | Calificación: " . $nivel . " estrellas";
+                $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (1, 'ENCUESTA', ?, NOW())")->execute([$detalles_audit]);
+            } catch (Exception $e) {}
             header("Location: encuesta.php?exito=1"); exit;
         } catch (Exception $e) {
             $mensaje_sweet = "Swal.fire('Error', 'Problema al guardar.', 'error');";

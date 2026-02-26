@@ -1,5 +1,5 @@
 <?php
-// canje_puntos.php - VERSIÓN BLINDADA Y DETALLADA
+// canje_puntos.php - VERSIÓN BLINDADA Y DETALLADA CON CANDADOS
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -9,6 +9,15 @@ $rutas_db = ['db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_canje_puntos', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 // Buscamos la última caja abierta en el sistema
 $stmtCaja = $conexion->query("SELECT id FROM cajas_sesion WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1");
@@ -21,6 +30,7 @@ $cliente_seleccionado = null;
 
 // --- NUEVA LÓGICA: GUARDAR REGLA DE PUNTOS ---
 if (isset($_POST['guardar_regla'])) {
+    if (!$es_admin && !in_array('regla_puntos', $permisos)) die("Sin permiso para modificar reglas.");
     $monto_base = floatval($_POST['monto_base']);
     $puntos_otorgados = floatval($_POST['puntos_otorgados']);
     
@@ -75,6 +85,7 @@ if (isset($_GET['id_cliente'])) {
 
 // 4. PROCESAR CANJE (LÓGICA CORREGIDA PARA DETALLES)
 if (isset($_POST['canjear']) && $cliente_seleccionado) {
+    if (!$es_admin && !in_array('crear_canje', $permisos)) die("Sin permiso para realizar canjes.");
     $id_cliente = $_POST['id_cliente'];
     $id_premio = $_POST['id_premio'];
     
@@ -188,11 +199,14 @@ try {
                 <h2 class="font-cancha mb-0 text-white">Centro de Fidelización</h2>
                 <p class="opacity-75 mb-0 text-white small">Configurá y gestioná las recompensas de tus clientes.</p>
             </div>
-            <?php if(!$cliente_seleccionado): ?>
-                <button class="btn btn-warning fw-bold rounded-pill shadow" data-bs-toggle="modal" data-bs-target="#modalRegla">
-                    <i class="bi bi-gear-fill me-2"></i> REGLA DE PUNTOS
-                </button>
-            <?php else: ?>
+            <?php if($es_admin || in_array('regla_puntos', $permisos)): ?>
+                <?php if(!$cliente_seleccionado): ?>
+                    <button class="btn btn-warning fw-bold rounded-pill shadow" data-bs-toggle="modal" data-bs-target="#modalRegla">
+                        <i class="bi bi-gear-fill me-2"></i> REGLA DE PUNTOS
+                    </button>
+                <?php endif; ?>
+            <?php endif; ?>
+            <?php if($cliente_seleccionado): ?>
                 <a href="canje_puntos.php" class="btn btn-outline-light rounded-pill fw-bold">
                     <i class="bi bi-arrow-left me-2"></i> VOLVER
                 </a>

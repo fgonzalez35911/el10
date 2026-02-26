@@ -13,8 +13,13 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
 // --- 1. PROCESAR GUARDADO CONFIGURACIÓN GENERAL ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        die("Error de seguridad: Solicitud no autorizada.");
+    if (!$es_admin) {
+        if (isset($_POST['nombre_negocio']) && !in_array('conf_datos_negocio', $permisos)) die("Sin permiso para datos del negocio.");
+        if (isset($_POST['modulo_clientes']) && !in_array('conf_modulos', $permisos)) die("Sin permiso para módulos.");
+        if (isset($_POST['stock_global_valor']) && !in_array('conf_alerta_stock', $permisos)) die("Sin permiso para alertas de stock.");
+        if (isset($_POST['ticket_modo']) && !in_array('conf_comprobante', $permisos)) die("Sin permiso para modo comprobante.");
+        if (isset($_POST['redondeo_auto']) && !in_array('conf_caja', $permisos)) die("Sin permiso para ajustes de caja.");
+        if (isset($_POST['mp_access_token']) && !in_array('conf_mercadopago', $permisos)) die("Sin permiso para Mercado Pago.");
     }
 
     try {
@@ -108,15 +113,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
     } catch (Exception $e) { die("Error: " . $e->getMessage()); }
 }
 
-// --- 2. PROCESAR GUARDADO AFIP ---
+// --- 2. PROCESAR GUARDADO AFIP (AHORA CON AUDITORÍA INTELIGENTE) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
+    if (!$es_admin && !in_array('conf_afip', $permisos)) die("Sin permiso para configuración AFIP.");
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
         die("Error de seguridad: Solicitud no autorizada.");
     }
 
+    // 1. Obtener datos viejos para comparar
+    $stmtOldAfip = $conexion->query("SELECT cuit, punto_venta, modo FROM afip_config WHERE id=1");
+    $oldAfip = $stmtOldAfip->fetch(PDO::FETCH_ASSOC);
+
     $cuit_afip = trim($_POST['cuit_afip']);
     $pto_vta = intval($_POST['punto_venta']);
     $modo = $_POST['modo_afip'];
+    
+    // 2. Detección exhaustiva de cambios
+    $cambiosAfip = [];
+    if($oldAfip['cuit'] != $cuit_afip) $cambiosAfip[] = "CUIT: " . ($oldAfip['cuit'] ?: 'S/N') . " -> " . $cuit_afip;
+    if($oldAfip['punto_venta'] != $pto_vta) $cambiosAfip[] = "Pto Vta: " . ($oldAfip['punto_venta'] ?: '0') . " -> " . $pto_vta;
+    if($oldAfip['modo'] != $modo) $cambiosAfip[] = "Modo: " . strtoupper($oldAfip['modo'] ?: 'N/A') . " -> " . strtoupper($modo);
 
     if (isset($_FILES['cert_crt']) && $_FILES['cert_crt']['error'] === UPLOAD_ERR_OK) {
         if(pathinfo($_FILES['cert_crt']['name'], PATHINFO_EXTENSION) == 'crt') {
@@ -124,6 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
             if(!is_dir('afip')) mkdir('afip');
             move_uploaded_file($_FILES['cert_crt']['tmp_name'], $ruta_crt);
             $conexion->prepare("UPDATE afip_config SET certificado_crt = ? WHERE id=1")->execute([$ruta_crt]);
+            $cambiosAfip[] = "Certificado (.crt) Actualizado";
         }
     }
 
@@ -133,17 +150,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
             if(!is_dir('afip')) mkdir('afip');
             move_uploaded_file($_FILES['cert_key']['tmp_name'], $ruta_key);
             $conexion->prepare("UPDATE afip_config SET clave_key = ? WHERE id=1")->execute([$ruta_key]);
+            $cambiosAfip[] = "Clave (.key) Actualizada";
         }
     }
 
     try {
+        // 3. Ejecutar Update
         $conexion->prepare("UPDATE afip_config SET cuit=?, punto_venta=?, modo=? WHERE id=1")->execute([$cuit_afip, $pto_vta, $modo]);
+        // Resetear tokens al cambiar credenciales
         $conexion->query("UPDATE afip_config SET token=NULL, sign=NULL WHERE id=1");
 
-        // AUDITORÍA: CONFIGURACIÓN AFIP
-        $detalles_audit = "Actualización de parámetros AFIP. CUIT: " . $cuit_afip . " | Pto Vta: " . $pto_vta . " | Modo: " . strtoupper($modo);
-        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CONFIG_AFIP', ?, NOW())")
-                 ->execute([$_SESSION['usuario_id'], $detalles_audit]);
+        // 4. REGISTRO EN AUDITORÍA INTELIGENTE
+        if(!empty($cambiosAfip)) {
+            $detalles_audit = "Ajustes AFIP | " . implode(" | ", $cambiosAfip);
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CONFIG_AFIP', ?, NOW())")
+                     ->execute([$_SESSION['usuario_id'], $detalles_audit]);
+        }
 
         header("Location: configuracion.php?msg=afip_ok"); 
         exit;

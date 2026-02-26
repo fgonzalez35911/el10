@@ -1,5 +1,5 @@
 <?php
-// gastos.php - VERSIÓN FINAL CORREGIDA (TOTAL MODAL + EMAIL AJAX)
+// gastos.php - VERSIÓN FINAL CORREGIDA CON CANDADOS
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -7,9 +7,17 @@ error_reporting(E_ALL);
 $rutas_db = ['db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
+if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $rol = $_SESSION['rol'] ?? 3;
-if (!in_array('gestionar_gastos', $permisos) && $rol > 2) { header("Location: dashboard.php"); exit; }
+$es_admin = ($rol <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_gastos', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 $usuario_id = $_SESSION['usuario_id'];
 $stmt = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
@@ -18,6 +26,7 @@ $caja = $stmt->fetch(PDO::FETCH_ASSOC);
 $id_caja_sesion = $caja['id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    if (!$es_admin && !in_array('crear_gasto', $permisos)) { die("Sin permiso para registrar gastos."); }
     if (!$id_caja_sesion) { die("Error: Debes tener una caja abierta para registrar una salida."); }
     $desc = $_POST['descripcion'];
     $monto = $_POST['monto'];
@@ -89,9 +98,15 @@ include 'includes/layout_header.php'; ?>
                 <h2 class="font-cancha mb-0 text-white">Gastos y Retiros</h2>
                 <p class="opacity-75 mb-0 text-white small">Control de movimientos operativos.</p>
             </div>
-            <a href="reporte_gastos.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
-            </a>
+            <div class="d-flex gap-2">
+                
+
+                <?php if($es_admin || in_array('reporte_gastos', $permisos)): ?>
+                <a href="reporte_gastos.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
+                </a>
+                <?php endif; ?>
+            </div>
         </div>
 
         <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">

@@ -3,9 +3,10 @@
 session_start();
 require_once 'includes/db.php';
 
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] != 1) {
-    header("Location: dashboard.php"); exit;
-}
+if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 1); // Solo SuperAdmin o permiso explícito
+if (!$es_admin && !in_array('restaurar_sistema', $permisos)) { header("Location: dashboard.php"); exit; }
 
 $mensaje = "";
 $tipo_mensaje = "";

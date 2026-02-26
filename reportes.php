@@ -1,15 +1,21 @@
 <?php
-// reportes.php - SISTEMA GERENCIAL "EL 10" - FULL DATA + EXCEL PRO + TOP PRODUCTOS
+// reportes.php - SISTEMA GERENCIAL CON CANDADOS GRANULARES
 session_start();
 
-ini_set('display_errors', 0); // Desactivamos para producción
+ini_set('display_errors', 0); 
 error_reporting(E_ALL);
 
 require_once 'includes/db.php';
 
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) { 
-    header("Location: dashboard.php"); 
-    exit; 
+if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_reportes', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
 }
 
 // 1. FILTROS (Restaurados todos los originales)
@@ -99,13 +105,18 @@ include 'includes/layout_header.php'; ?>
                 <p class="opacity-75 mb-0 text-white small">Análisis detallado de rendimiento, costos y utilidades.</p>
             </div>
             <div class="d-flex gap-2">
-                <button onclick="exportarExcelPro()" class="btn btn-light text-success fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-spreadsheet-fill me-2"></i> EXCEL
-                </button>
-                <a href="reporte_financiero_pdf.php?f_inicio=<?php echo $inicio; ?>&f_fin=<?php echo $fin; ?>" target="_blank" class="btn btn-light text-danger fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
-                </a>
-            </div>
+            <?php if($es_admin || in_array('descargar_excel', $permisos)): ?>
+            <button onclick="exportarExcelPro()" class="btn btn-success fw-bold rounded-pill px-4 shadow-sm">
+                <i class="bi bi-file-earmark-excel me-2"></i> EXCEL
+            </button>
+            <?php endif; ?>
+
+            <?php if($es_admin || in_array('descargar_pdf', $permisos)): ?>
+            <button onclick="window.print()" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+                <i class="bi bi-file-earmark-pdf me-2"></i> PDF
+            </a>
+            <?php endif; ?>
+        </div>
         </div>
 
         <div class="row g-3">
@@ -195,9 +206,13 @@ include 'includes/layout_header.php'; ?>
                                 <td class="text-end fw-bold">$<?php echo number_format($total_v, 0, ',', '.'); ?></td>
                                 <td class="text-end text-muted">$<?php echo number_format($costo_v, 0, ',', '.'); ?></td>
                                 <td class="text-end fw-bold text-success">$<?php echo number_format($margen_v, 0, ',', '.'); ?></td>
-                                <td class="text-center">
+                                <td class="text-end">
+                            <?php if($es_admin || in_array('detalle_operacion', $permisos)): ?>
+                            <button class="btn btn-sm btn-light text-primary rounded-circle" onclick="verDetalleOperacion(<?php echo $op['id']; ?>, '<?php echo $op['tipo']; ?>')">
                                     <a href="ticket.php?id=<?php echo $v['id']; ?>" onclick="window.open(this.href, 'TicketView', 'width=350,height=600'); return false;" class="text-primary"><i class="bi bi-eye-fill"></i></a>
-                                </td>
+                                </button>
+                            <?php endif; ?>
+                        </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

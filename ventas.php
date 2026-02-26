@@ -1,8 +1,13 @@
 <?php
-// ventas.php - CONTROL DE APERTURA (FINAL CORREGIDO RUTAS)
+// ventas.php - CONTROL DE APERTURA CON SESIÓN SEGURA
 session_start();
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 require_once 'includes/db.php';
+
+// --- CARGA DE PERMISOS ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
 require_once 'check_security.php';
 
 $usuario_id = $_SESSION['usuario_id'];

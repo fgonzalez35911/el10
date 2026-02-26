@@ -7,6 +7,13 @@ error_reporting(E_ALL);
 $rutas_db = ['db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+if (!$es_admin && !in_array('ver_cupones', $permisos)) { header("Location: dashboard.php"); exit; }
+
+
 if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) { header("Location: dashboard.php"); exit; }
 
 if (isset($_GET['borrar'])) {
@@ -153,7 +160,7 @@ foreach($cupones as $c) {
 
     <div class="container pb-5 mt-4">
         <div class="row g-4">
-            <div class="col-md-4">
+            <?php if($es_admin || in_array('crear_cupon', $permisos)): ?><div class="col-md-4">
                 <div class="card card-custom h-100 border-0 shadow-sm">
                     <div class="card-header bg-white fw-bold py-3 border-bottom-0 text-primary">
                         <i class="bi bi-plus-circle-fill me-2"></i> Crear Nuevo Cupón
@@ -214,7 +221,9 @@ foreach($cupones as $c) {
                                         <td><div class="fw-bold text-dark"><?php echo $c['usos_actuales']; ?> <small class="text-muted fw-normal">usos</small></div><small class="text-muted">Límite: <?php echo $c['cantidad_limite'] > 0 ? $c['cantidad_limite'] : '∞'; ?></small></td>
                                         <td class="text-end pe-4">
                                             <button onclick='abrirModalEditar(<?php echo json_encode($c); ?>)' class="btn btn-sm btn-outline-primary border-0 rounded-circle shadow-sm me-1"><i class="bi bi-pencil-square"></i></button>
-                                            <button onclick="confirmarBorrado(<?php echo $c['id']; ?>)" class="btn btn-sm btn-outline-danger border-0 rounded-circle shadow-sm"><i class="bi bi-trash3-fill"></i></button>
+                                            <?php if($es_admin || in_array('eliminar_cupon', $permisos)): ?>
+                                                <button onclick="confirmarBorrado(<?php echo $c['id']; ?>)" class="btn btn-sm btn-outline-danger border-0 rounded-circle"><i class="bi bi-trash3-fill"></i></button>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
@@ -227,6 +236,7 @@ foreach($cupones as $c) {
                 </div>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 
     <script>

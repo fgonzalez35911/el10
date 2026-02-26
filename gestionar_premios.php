@@ -4,7 +4,14 @@ session_start();
 require_once 'includes/db.php';
 
 // SEGURIDAD
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) { header("Location: dashboard.php"); exit; }
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_premios', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 $mensaje = '';
 
@@ -14,6 +21,7 @@ $combos_db = $conexion->query("SELECT id, nombre FROM combos WHERE activo=1 ORDE
 
 // 2. LÓGICA DE AGREGAR PREMIO (Original corregida)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['agregar'])) {
+    if (!$es_admin && !in_array('crear_premio', $permisos)) die("Sin permiso para crear premios.");
     try {
         $nombre = $_POST['nombre'];
         $puntos = $_POST['puntos'];
@@ -39,8 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['agregar'])) {
     } catch (Exception $e) { $mensaje = '<div class="alert alert-danger">Error: '.$e->getMessage().'</div>'; }
 }
 
-// 3. LÓGICA DE EDICIÓN (NUEVO)
+// 3. LÓGICA DE EDICIÓN (NUEVO CON AUDITORÍA INTELIGENTE)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'edit') {
+    if (!$es_admin && !in_array('editar_premio', $permisos)) die("Sin permiso para editar premios.");
     try {
         $id = $_POST['id_premio'];
         $nombre = $_POST['nombre'];
@@ -48,15 +57,50 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         $stock = $_POST['stock'];
         $monto = $_POST['monto_dinero'] ?? 0;
         
+        // Obtener datos viejos para auditoría
+        $stmtOld = $conexion->prepare("SELECT nombre, puntos_necesarios, stock, monto_dinero FROM premios WHERE id = ?");
+        $stmtOld->execute([$id]);
+        $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
+
+        // Detección de cambios
+        $cambios = [];
+        if($old['nombre'] != $nombre) $cambios[] = "Nombre: " . $old['nombre'] . " -> " . $nombre;
+        if($old['puntos_necesarios'] != $puntos) $cambios[] = "Puntos: " . $old['puntos_necesarios'] . " -> " . $puntos;
+        if($old['stock'] != $stock) $cambios[] = "Stock: " . $old['stock'] . " -> " . $stock;
+        if(floatval($old['monto_dinero']) != floatval($monto)) $cambios[] = "Monto: $" . floatval($old['monto_dinero']) . " -> $" . floatval($monto);
+
+        // Update real
         $sql = "UPDATE premios SET nombre=?, puntos_necesarios=?, stock=?, monto_dinero=? WHERE id=?";
         $conexion->prepare($sql)->execute([$nombre, $puntos, $stock, $monto, $id]);
+        
+        // Registro inteligente
+        if(!empty($cambios)) {
+            $detalles = "Premio Editado: " . $old['nombre'] . " | " . implode(" | ", $cambios);
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PREMIO_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles]);
+        }
+        
         header("Location: gestionar_premios.php?msg=edit"); exit;
     } catch (Exception $e) { $mensaje = '<div class="alert alert-danger">Error al editar.</div>'; }
 }
 
-// 4. LÓGICA DE BORRADO (Original)
+// 4. LÓGICA DE BORRADO (NUEVO CON AUDITORÍA EXHAUSTIVA)
 if (isset($_GET['borrar'])) {
-    $conexion->prepare("DELETE FROM premios WHERE id = ?")->execute([$_GET['borrar']]);
+    if (!$es_admin && !in_array('eliminar_premio', $permisos)) die("Sin permiso para eliminar premios.");
+    $id_borrar = intval($_GET['borrar']);
+    
+    // Rescatar todos los datos del premio antes de que desaparezca
+    $stmtP = $conexion->prepare("SELECT nombre, puntos_necesarios, stock, es_cupon, monto_dinero FROM premios WHERE id = ?");
+    $stmtP->execute([$id_borrar]);
+    $premio = $stmtP->fetch(PDO::FETCH_ASSOC);
+    
+    if ($premio) {
+        $conexion->prepare("DELETE FROM premios WHERE id = ?")->execute([$id_borrar]);
+        
+        $tipo_txt = $premio['es_cupon'] ? "Cupón de $".floatval($premio['monto_dinero']) : "Mercadería";
+        $detalles = "Premio Eliminado: " . $premio['nombre'] . " | Costo: " . $premio['puntos_necesarios'] . " pts | Stock: " . $premio['stock'] . " | Tipo: " . $tipo_txt;
+        
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PREMIO_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles]);
+    }
     header("Location: gestionar_premios.php?msg=borrado"); exit;
 }
 
@@ -121,6 +165,7 @@ include 'includes/layout_header.php';
 
 <div class="container pb-5 mt-4">
     <div class="row g-4">
+        <?php if($es_admin || in_array('crear_premio', $permisos)): ?>
         <div class="col-md-4">
             <div class="card card-custom border-0 shadow-sm h-100">
                 <div class="card-header bg-white fw-bold py-3 border-bottom-0 text-primary"><i class="bi bi-plus-circle-fill me-2"></i> Nuevo Premio</div>
@@ -159,6 +204,7 @@ include 'includes/layout_header.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <div class="col-md-8">
             <div class="card card-custom border-0 shadow-sm h-100">
@@ -184,8 +230,13 @@ include 'includes/layout_header.php';
                                 <?php else: ?>-<?php endif; ?></td>
                                 <td><span class="badge bg-warning bg-opacity-20 text-dark rounded-pill px-3 py-2"><i class="bi bi-star-fill me-1"></i> <?php echo number_format($p['puntos_necesarios'], 0, ',', '.'); ?></span></td>
                                 <td class="text-end pe-4">
-                                    <button onclick='event.stopPropagation(); editarPremio(<?php echo $jsonData; ?>)' class="btn btn-sm btn-outline-primary border-0 rounded-circle me-1"><i class="bi bi-pencil-square"></i></button>
-                                    <button onclick="event.stopPropagation(); confirmarBorrado(<?php echo $p['id']; ?>)" class="btn btn-sm btn-outline-danger border-0 rounded-circle"><i class="bi bi-trash3-fill"></i></button>
+                                    <?php if($es_admin || in_array('editar_premio', $permisos)): ?>
+                                        <button onclick='event.stopPropagation(); editarPremio(<?php echo $jsonData; ?>)' class="btn btn-sm btn-outline-primary border-0 rounded-circle me-1"><i class="bi bi-pencil-square"></i></button>
+                                    <?php endif; ?>
+
+                                    <?php if($es_admin || in_array('eliminar_premio', $permisos)): ?>
+                                        <button onclick="event.stopPropagation(); confirmarBorrado(<?php echo $p['id']; ?>)" class="btn btn-sm btn-outline-danger border-0 rounded-circle"><i class="bi bi-trash3-fill"></i></button>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                             <?php endforeach; ?>

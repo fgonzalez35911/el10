@@ -4,7 +4,10 @@ session_start();
 require_once 'includes/db.php';
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
-
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+if (!$es_admin && !in_array('ver_sorteos', $permisos)) { header("Location: dashboard.php"); exit; }
 // 1. PROCESAR CREACIÓN DE SORTEO (Estado inicial: pendiente)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
     $titulo = $_POST['titulo'];
@@ -32,6 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
                 }
             }
      }
+     $d_aud = "Sorteo Creado: " . $titulo . " | Precio Tkt: $" . $precio; 
+    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'SORTEO_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
     header("Location: detalle_sorteo.php?id=$idSorteo&msg=creado"); exit;
 }
 
@@ -76,9 +81,11 @@ include 'includes/layout_header.php';
                 <p class="opacity-75 mb-0 text-white small">Gestión profesional con control de stock y caja.</p>
             </div>
             <div class="d-flex gap-2">
-                <button class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow" data-bs-toggle="modal" data-bs-target="#modalNuevoSorteo">
-                    <i class="bi bi-plus-lg me-2"></i> NUEVA RIFA
-                </button>
+                <?php if($es_admin || in_array('crear_sorteo', $permisos)): ?>
+                    <button class="btn btn-light text-danger fw-bold rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalSorteo">
+                        <i class="bi bi-plus-lg me-2"></i> NUEVA RIFA
+                    </button>
+                <?php endif; ?>
                 <a href="reporte_sorteos.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow">
                     <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
                 </a>

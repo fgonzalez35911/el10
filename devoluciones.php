@@ -1,5 +1,5 @@
 <?php
-// devoluciones.php - VERSIÓN ESTANDARIZADA (FILTROS + PDF)
+// devoluciones.php - VERSIÓN ESTANDARIZADA CON CANDADOS
 session_start();
 error_reporting(0); 
 
@@ -8,7 +8,15 @@ elseif (file_exists('db.php')) { require_once 'db.php'; }
 else { die("Error: No se encuentra db.php"); }
 
 if (!isset($_SESSION['usuario_id'])) { echo "<script>window.location='index.php';</script>"; exit; }
-$user_id = $_SESSION['usuario_id'];
+
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_devoluciones', $permisos)) { 
+    echo "<script>window.location='dashboard.php';</script>"; exit; 
+}
 
 $color_sistema = '#102A57';
 try {
@@ -119,9 +127,11 @@ $plataHoy = $conexion->query("SELECT COALESCE(SUM(monto_devuelto),0) FROM devolu
                 <h2 class="font-cancha mb-0 text-white">Gestión de Devoluciones</h2>
                 <p class="opacity-75 mb-0 text-white small">Control de reintegros y stock</p>
             </div>
-            <a href="reporte_devoluciones.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
+            <?php if($es_admin || in_array('reporte_devoluciones', $permisos)): ?>
+            <a href="reporte_devoluciones_pdf.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+                <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
             </a>
+            <?php endif; ?>
         </div>
 
         <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">

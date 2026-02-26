@@ -1,5 +1,5 @@
 <?php
-// usuarios.php - GESTIÓN DE EQUIPO (CORRECCIÓN DE COLOR EN WIDGETS)
+// usuarios.php - GESTIÓN DE EQUIPO (CON CANDADOS)
 session_start();
 
 $rutas_db = [__DIR__ . '/db.php', __DIR__ . '/includes/db.php', 'db.php', 'includes/db.php'];
@@ -7,15 +7,20 @@ foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; bre
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
-$id_user_sesion = $_SESSION['usuario_id'];
-$stmtCheck = $conexion->prepare("SELECT id_rol FROM usuarios WHERE id = ?");
-$stmtCheck->execute([$id_user_sesion]);
-$rol_actual = $stmtCheck->fetchColumn();
+// --- CANDADOS DE SEGURIDAD ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = (($_SESSION['rol'] ?? 3) <= 2);
 
-if($rol_actual > 2) { header("Location: dashboard.php"); exit; }
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_usuarios', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
+
+
 
 // --- 1. PROCESAR ALTA ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_usuario'])) {
+    if (!$es_admin && !in_array('crear_usuario', $permisos)) die("Sin permiso para crear usuarios.");
     // Validamos Token CSRF
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
         die("Error de seguridad: Solicitud no autorizada.");
@@ -35,6 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_usuario'])) {
         $hash = password_hash($pass, PASSWORD_DEFAULT);
         $sql = "INSERT INTO usuarios (nombre_completo, usuario, password, id_rol, activo) VALUES (?, ?, ?, ?, 1)";
         if ($conexion->prepare($sql)->execute([$nombre, $user, $hash, $rol])) {
+            $d_aud = "Usuario Creado: " . $user . " (" . $nombre . ")"; 
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'USUARIO_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
             header("Location: usuarios.php?msg=creado"); exit;
         }
     }
@@ -42,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_usuario'])) {
 
 // --- 2. PROCESAR EDICIÓN ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['editar_usuario'])) {
+    if (!$es_admin && !in_array('editar_usuario', $permisos)) die("Sin permiso para editar usuarios.");
     // Validamos Token CSRF
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
         die("Error de seguridad: Solicitud no autorizada.");
@@ -52,6 +60,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['editar_usuario'])) {
     $rol = intval($_POST['id_rol']);
     $whatsapp = $_POST['whatsapp'];
 
+    // --- AUDITORÍA ANTES/DESPUÉS ---
+    $stmtOld = $conexion->prepare("SELECT nombre_completo, id_rol, whatsapp FROM usuarios WHERE id = ?");
+    $stmtOld->execute([$id_upd]);
+    $old = $stmtOld->fetch(PDO::FETCH_ASSOC);
+    
+    $cambios = [];
+    if($old['nombre_completo'] != $nombre) $cambios[] = "Nombre: " . $old['nombre_completo'] . " -> " . $nombre;
+    if($old['whatsapp'] != $whatsapp) $cambios[] = "WA: " . ($old['whatsapp']?:'-') . " -> " . ($whatsapp?:'-');
+    if($old['id_rol'] != $rol) {
+        $nRoles = $conexion->query("SELECT id, nombre FROM roles WHERE id IN (".$old['id_rol'].", ".$rol.")")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $cambios[] = "Rol: " . ($nRoles[$old['id_rol']]??'N/A') . " -> " . ($nRoles[$rol]??'N/A');
+    }
+    if(!empty($_POST['password'])) $cambios[] = "Contraseña reseteada";
+
+    // GUARDADO REAL
     $sql = "UPDATE usuarios SET nombre_completo=?, id_rol=?, whatsapp=? WHERE id=?";
     $params = [$nombre, $rol, $whatsapp, $id_upd];
     
@@ -60,8 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['editar_usuario'])) {
         $sql = "UPDATE usuarios SET nombre_completo=?, id_rol=?, whatsapp=?, password=? WHERE id=?";
         $params = [$nombre, $rol, $whatsapp, $hash, $id_upd];
     }
-    
     $conexion->prepare($sql)->execute($params);
+
+    // REGISTRO EN AUDITORÍA
+    if(!empty($cambios)) {
+        $d_aud = "Usuario Editado: " . $nombre . " | " . implode(" | ", $cambios);
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'USUARIO_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
+    }
     header("Location: usuarios.php?msg=editado"); exit;
 }
 
@@ -81,6 +109,8 @@ if (isset($_GET['toggle'])) {
     }
 
     $conexion->prepare("UPDATE usuarios SET activo = ? WHERE id = ?")->execute([$st, $id_edit]);
+    $d_aud = "Estado de usuario ID " . $id_edit . " cambiado a " . ($st == 1 ? "Activo" : "Inactivo"); 
+    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'USUARIO_ESTADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
     header("Location: usuarios.php"); exit;
 }
 
@@ -118,9 +148,9 @@ try {
                 <a href="roles.php" class="btn btn-outline-light fw-bold rounded-pill px-3 shadow-sm">
                     <i class="bi bi-shield-lock me-1"></i> ROLES
                 </a>
-                <button class="btn btn-light text-primary fw-bold rounded-pill px-3 shadow" data-bs-toggle="modal" data-bs-target="#modalAlta">
-                    <i class="bi bi-person-plus-fill me-1"></i> NUEVO
-                </button>
+                <?php if($es_admin || in_array('crear_usuario', $permisos)): ?>
+                    <button class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalCrear"><i class="bi bi-person-plus-fill me-2"></i> NUEVO USUARIO</button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -227,12 +257,19 @@ try {
                                 </span>
                             </td>
                             <td class="text-end pe-4">
-                                <button onclick='abrirEditar(<?php echo $data_json; ?>)' class="btn-action text-primary" title="Editar"><i class="bi bi-pencil-fill"></i></button>
-                                <a href="?toggle=<?php echo $user['id']; ?>&st=<?php echo $user['activo']; ?>&token=<?php echo $_SESSION['csrf_token']; ?>"
-                                   class="btn-action <?php echo $user['activo'] == 1 ? 'text-danger' : 'text-success'; ?> ms-1"
-                                   title="Cambiar Estado">
-                                    <i class="bi <?php echo $user['activo'] == 1 ? 'bi-person-x-fill' : 'bi-person-check-fill'; ?>"></i>
-                                </a>
+                                <div class="d-flex justify-content-end gap-2">
+                                    <?php if($es_admin || in_array('editar_usuario', $permisos)): ?>
+                                        <button onclick='abrirEditar(<?php echo $data_json; ?>)' class="btn btn-sm btn-light text-warning rounded-circle" title="Editar">
+                                            <i class="bi bi-pencil-fill"></i>
+                                        </button>
+                                    <?php endif; ?>
+
+                                    <?php if($es_admin || in_array('eliminar_usuario', $permisos)): ?>
+                                        <a href="usuarios.php?borrar=<?php echo $user['id']; ?>" class="btn btn-sm btn-light text-danger rounded-circle" onclick="return confirm('¿Eliminar de forma permanente?')">
+                                            <i class="bi bi-trash-fill"></i>
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>

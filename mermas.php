@@ -1,5 +1,5 @@
 <?php
-// mermas.php - VERSIÓN PREMIUM (FILTROS + TICKET AVANZADO)
+// mermas.php - VERSIÓN PREMIUM CON CANDADOS
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -7,9 +7,17 @@ error_reporting(E_ALL);
 $rutas_db = ['db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
+if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
+// --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $rol = $_SESSION['rol'] ?? 3;
-if (!in_array('gestionar_mermas', $permisos) && $rol > 2) { header("Location: dashboard.php"); exit; }
+$es_admin = ($rol <= 2);
+
+// Candado: Acceso a la página
+if (!$es_admin && !in_array('ver_mermas', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 // CONFIGURACIÓN Y FIRMA
 $conf = $conexion->query("SELECT nombre_negocio, direccion_local, cuit, logo_url, color_barra_nav, telefono_whatsapp FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
@@ -23,6 +31,7 @@ if (!file_exists($ruta_firma) && file_exists("img/firmas/usuario_{$usuario_id}.p
 
 // PROCESAR BAJA
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
+    if (!$es_admin && !in_array('crear_merma', $permisos)) { die("Sin permiso para registrar mermas."); }
     $id_prod = $_POST['id_producto'];
     $cant = $_POST['cantidad'];
     $motivo = $_POST['motivo'];
@@ -80,9 +89,15 @@ foreach($mermas as $m) { $montoFiltrado += ($m->cantidad * $m->precio_costo); }
                     <h2 class="font-cancha mb-0 text-white">Control de Mermas</h2>
                     <p class="opacity-75 mb-0 text-white small">Gestión de roturas, vencimientos y bajas.</p>
                 </div>
+                <div class="d-flex gap-2">
+                
+
+                <?php if($es_admin || in_array('reporte_mermas', $permisos)): ?>
                 <a href="reporte_mermas.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
+                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
                 </a>
+                <?php endif; ?>
+            </div>
             </div>
 
             <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">
