@@ -9,6 +9,8 @@ else { die("Error: No se encuentra db.php"); }
 
 if (!isset($_SESSION['usuario_id'])) { echo "<script>window.location='index.php';</script>"; exit; }
 
+$user_id = $_SESSION['usuario_id']; // ESTO FALTABA Y ROMPÍA EL GUARDADO
+
 // --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
@@ -32,7 +34,7 @@ try { $conexion->exec("CREATE TABLE IF NOT EXISTS devoluciones (id INT AUTO_INCR
 $stmtCaja = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
 $stmtCaja->execute([$user_id]);
 $cajaAbierta = $stmtCaja->fetch(PDO::FETCH_ASSOC);
-$id_caja_actual = $cajaAbierta ? $cajaAbierta['id'] : null;
+$id_caja_actual = $cajaAbierta ? $cajaAbierta['id'] : 1;
 
 // PROCESAR DEVOLUCIÓN
 if (isset($_POST['devolver'])) {
@@ -73,11 +75,15 @@ if (isset($_POST['devolver'])) {
             $msg = "Devolución registrada correctamente.";
         }
 
+        // REGISTRAR EN AUDITORÍA
+        $detalles_audit = "Ticket #$id_venta | Monto devuelto: $" . $monto . " | Motivo: " . $motivo_dev;
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'DEVOLUCION', ?, NOW())")->execute([$user_id, $detalles_audit]);
+
         $conexion->commit();
         echo "<script>window.location.href='devoluciones.php?id_ticket=$id_venta&msg=".urlencode($msg)."&tipo=success';</script>"; exit;
     } catch (Exception $e) {
         if ($conexion->inTransaction()) $conexion->rollBack();
-        echo "<script>alert('".$e->getMessage()."'); window.location.href='devoluciones.php?id_ticket=$id_venta';</script>"; exit;
+        echo "<script>window.location.href='devoluciones.php?id_ticket=$id_venta&msg=".urlencode($e->getMessage())."&tipo=error';</script>"; exit;
     }
 }
 
@@ -128,7 +134,7 @@ $plataHoy = $conexion->query("SELECT COALESCE(SUM(monto_devuelto),0) FROM devolu
                 <p class="opacity-75 mb-0 text-white small">Control de reintegros y stock</p>
             </div>
             <?php if($es_admin || in_array('reporte_devoluciones', $permisos)): ?>
-            <a href="reporte_devoluciones_pdf.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+            <a href="reporte_devoluciones.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
                 <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
             </a>
             <?php endif; ?>

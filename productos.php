@@ -82,7 +82,7 @@ $stock_critico_global = intval($conf_global['stock_global_valor'] ?? 5);
 
 $categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll();
 $proveedores_list = $conexion->query("SELECT id, empresa FROM proveedores ORDER BY empresa ASC")->fetchAll();
-$sql = "SELECT p.*, c.nombre as cat, cb.fecha_inicio, cb.fecha_fin, cb.es_ilimitado FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id LEFT JOIN combos cb ON p.codigo_barras = cb.codigo_barras ORDER BY p.id DESC";
+$sql = "SELECT p.*, c.nombre as cat, cb.fecha_inicio, cb.fecha_fin, cb.es_ilimitado FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id LEFT JOIN combos cb ON (p.codigo_barras = cb.codigo_barras AND p.codigo_barras != '' AND p.codigo_barras IS NOT NULL) GROUP BY p.id ORDER BY p.id DESC";
 $productos = $conexion->query($sql)->fetchAll();
 
 // OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
@@ -347,6 +347,11 @@ foreach($productos as $p) {
                                 <?php if($es_admin || in_array('editar_producto', $permisos)): ?>
                                 <a href="producto_formulario.php?id=<?php echo $p->id; ?>" class="btn-action btn-edit" title="Editar">
                                     <i class="bi bi-pencil-fill"></i>
+                                </a>
+                                <?php endif; ?>
+                                <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                                <a href="productos.php?borrar=<?php echo $p->id; ?>&token=<?php echo isset($_SESSION['csrf_token']) ? $_SESSION['csrf_token'] : ''; ?>" class="btn-action" style="background-color: #dc3545; color: white; display: flex; align-items: center; justify-content: center; text-decoration: none;" title="Eliminar" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto definitivamente?');">
+                                    <i class="bi bi-trash-fill"></i>
                                 </a>
                                 <?php endif; ?>
                             </div>

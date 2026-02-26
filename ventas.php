@@ -433,6 +433,27 @@ try {
         $('#buscar-producto').on('keyup', function(e) {
             if(e.key === 'Enter') {
                 let term = $(this).val(); if(term.length < 1) return;
+                
+                if(term.startsWith('20') && term.length === 13) {
+                    let pluBalanza = term.substring(2, 6); 
+                    let pesoGramos = term.substring(6, 11);
+                    let pesoKgFinal = parseInt(pesoGramos) / 1000;
+                    
+                    $.getJSON('acciones/buscar_producto.php', { term: pluBalanza }, function(res) {
+                        if(res.status == 'success' && res.data.length > 0) {
+                            let p = res.data.find(x => x.plu == parseInt(pluBalanza) || x.codigo_barras == pluBalanza);
+                            if(p) {
+                                let pFinal = (parseFloat(p.precio_oferta) > 0) ? parseFloat(p.precio_oferta) : parseFloat(p.precio_venta);
+                                let pesoNeto = pesoKgFinal - (parseFloat(p.tara_defecto) || 0);
+                                if(pesoNeto < 0) pesoNeto = 0;
+                                carrito.push({id:p.id, descripcion:p.descripcion, precio:pFinal, cantidad:pesoNeto});
+                                render(); $('#buscar-producto').val('').focus(); $('#lista-resultados').hide();
+                            } else { Swal.fire('Error', 'PLU de balanza no encontrado', 'error'); }
+                        }
+                    });
+                    return;
+                }
+
                 $.getJSON('acciones/buscar_producto.php', { term: term }, function(res) {
                     if(res.status == 'success' && res.data.length > 0) {
                         let exacto = res.data.find(p => p.codigo_barras == term);
@@ -498,10 +519,57 @@ if(parseFloat(p.precio_oferta) > 0) {
         });
 
         window.seleccionarProducto = function(p) {
+            let pFinal = (parseFloat(p.precio_oferta) > 0) ? parseFloat(p.precio_oferta) : parseFloat(p.precio_venta);
+            
+            if(p.tipo === 'pesable') {
+                $('#idProdPesable').val(p.id);
+                $('#nombreProdPesable').text(p.descripcion);
+                $('#precioKgPesable').val(pFinal);
+                $('#inputTaraManual').val(p.tara_defecto || 0);
+                $('#inputPesoManual').val('');
+                $('#totalCalculadoPesable').text('$0.00');
+                
+                var myModal = new bootstrap.Modal(document.getElementById('modalPesable'));
+                myModal.show();
+                $('#modalPesable').on('shown.bs.modal', function () { $('#inputPesoManual').focus(); });
+                $('#buscar-producto').val('').focus(); $('#lista-resultados').hide();
+                return;
+            }
+
             let ex = carrito.find(i => i.id === p.id); 
-            let pFinal = (parseFloat(p.precio_oferta) > 0) ? parseFloat(p.precio_oferta) : parseFloat(p.precio_venta); if(ex) ex.cantidad++; else carrito.push({id:p.id, descripcion:p.descripcion, precio:pFinal, cantidad:1});
+            if(ex) ex.cantidad++; else carrito.push({id:p.id, descripcion:p.descripcion, precio:pFinal, cantidad:1});
             render(); $('#buscar-producto').val('').focus(); $('#lista-resultados').hide();
         };
+
+        $(document).on('input change', '#inputPesoManual, #inputTaraManual, #unidadMedidaPesable', function() {
+            let pesoIngresado = parseFloat($('#inputPesoManual').val()) || 0;
+            let tara = parseFloat($('#inputTaraManual').val()) || 0;
+            let unidad = $('#unidadMedidaPesable').val();
+            let precioKg = parseFloat($('#precioKgPesable').val());
+            let pesoEnKg = (unidad === 'gr') ? (pesoIngresado / 1000) : pesoIngresado;
+            let pesoNeto = pesoEnKg - tara;
+            if(pesoNeto < 0) pesoNeto = 0;
+            $('#totalCalculadoPesable').text('$' + (pesoNeto * precioKg).toFixed(2));
+        });
+
+        $(document).on('click', '#btnAgregarPesableCarrito', function() {
+            let idProd = $('#idProdPesable').val();
+            let nombreProd = $('#nombreProdPesable').text();
+            let precioKg = parseFloat($('#precioKgPesable').val());
+            let pesoIngresado = parseFloat($('#inputPesoManual').val()) || 0;
+            let tara = parseFloat($('#inputTaraManual').val()) || 0;
+            let unidad = $('#unidadMedidaPesable').val();
+            if(pesoIngresado <= 0) return Swal.fire('Atención', 'Ingrese un peso válido', 'warning');
+            
+            let pesoEnKg = (unidad === 'gr') ? (pesoIngresado / 1000) : pesoIngresado;
+            let pesoNetoFinal = pesoEnKg - tara;
+            if(pesoNetoFinal < 0) pesoNetoFinal = 0;
+
+            let ex = carrito.find(i => i.id == idProd);
+            if(ex) ex.cantidad += pesoNetoFinal; else carrito.push({id: idProd, descripcion: nombreProd, precio: precioKg, cantidad: pesoNetoFinal});
+            render();
+            bootstrap.Modal.getInstance(document.getElementById('modalPesable')).hide();
+        });
 
         // FUNCIÓN SELECCIONAR CLIENTE MEJORADA
         window.seleccionarCliente = function(id, nombre, saldo, puntos) {
@@ -1159,6 +1227,43 @@ function enviarMontoAMercadoPago() {
         </div>
     </div>
 </div>
-
+<div class="modal fade" id="modalPesable" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title fw-bold">⚖️ Pesar: <span id="nombreProdPesable"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <input type="hidden" id="idProdPesable">
+        <input type="hidden" id="precioKgPesable">
+        <div class="mb-3">
+            <label class="form-label fw-bold small text-muted">Unidad de Medida</label>
+            <select class="form-select form-select-lg" id="unidadMedidaPesable">
+                <option value="kg">Kilos (Ej: 1.250)</option>
+                <option value="gr">Gramos (Ej: 250)</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label class="form-label fw-bold small text-muted">Peso en Balanza</label>
+            <input type="number" step="0.001" class="form-control form-control-lg text-center fw-bold text-success" id="inputPesoManual" placeholder="0.000" style="font-size: 2rem;">
+        </div>
+        <div class="row mb-3">
+            <div class="col-6">
+                <label class="form-label fw-bold small text-muted">Descontar Tara (Kg)</label>
+                <input type="number" step="0.001" class="form-control" id="inputTaraManual" value="0.000">
+            </div>
+            <div class="col-6 text-end">
+                <label class="form-label fw-bold small text-muted">Total a Cobrar</label>
+                <h3 id="totalCalculadoPesable" class="text-dark fw-bold m-0">$0.00</h3>
+            </div>
+        </div>
+        <button type="button" class="btn btn-success btn-lg w-100 fw-bold shadow" id="btnAgregarPesableCarrito">
+            <i class="bi bi-cart-plus"></i> AGREGAR A LA VENTA
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php require_once 'includes/layout_footer.php'; ?>

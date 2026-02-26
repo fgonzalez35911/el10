@@ -82,7 +82,7 @@ include 'includes/layout_header.php';
             </div>
             <div class="d-flex gap-2">
                 <?php if($es_admin || in_array('crear_sorteo', $permisos)): ?>
-                    <button class="btn btn-light text-danger fw-bold rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalSorteo">
+                    <button class="btn btn-light text-danger fw-bold rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoSorteo">
                         <i class="bi bi-plus-lg me-2"></i> NUEVA RIFA
                     </button>
                 <?php endif; ?>
