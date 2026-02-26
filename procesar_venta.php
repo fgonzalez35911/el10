@@ -179,7 +179,7 @@ $total = floatval($_POST['total'] ?? 0);
 
     foreach($items as $item) {
         $subtotal = $item['precio'] * $item['cantidad'];
-        $stmtDetalle->execute([$venta_id, $item['id'], $item['cantidad'], $item['precio'], $subtotal]);
+        $stmtDetalle->execute([$venta_id, $item['id'], floatval($item['cantidad']), $item['precio'], $subtotal]);
 
         // Verificamos tipo nuevamente para estar seguros
         $stmtTipo = $conexion->prepare("SELECT tipo, codigo_barras, descripcion FROM productos WHERE id = ?");
@@ -227,7 +227,7 @@ $total = floatval($_POST['total'] ?? 0);
 
         } else {
             // Producto Normal
-            $conexion->prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?")->execute([$item['cantidad'], $item['id']]);
+            $conexion->prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?")->execute([floatval($item['cantidad']), $item['id']]);
         }
     }
 
