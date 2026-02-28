@@ -455,7 +455,7 @@ try {
                 venta += (parseFloat(sel.data('venta'))||0)*cant;
             }
         });
-        $((tipo=='nuevo')?'#c_costo_total':'#e_costo_total').html(`<small>Costo: $${costo} | Sug: $${(venta*0.85).toFixed(0)}</small>`);
+        $((tipo=='nuevo')?'#c_costo_total':'#e_costo_total').html(`<small>Costo: $${costo} | Sugerido : $${(venta*0.85).toFixed(0)}</small>`);
         let inp = $(tipo=='nuevo'?'#c_precio_input':'#e_precio');
         if(tipo=='nuevo' && (inp.val()=='' || inp.val()==0)) inp.val((venta*0.85).toFixed(0));
     }

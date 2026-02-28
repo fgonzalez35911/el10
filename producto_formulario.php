@@ -203,11 +203,24 @@ $margen_ini = ($costo_ini > 0) ? ($ganancia_ini / $costo_ini) * 100 : 0;
                             
                             <div class="col-md-4 text-center border-end">
                                 <label class="fw-bold d-block mb-3">Imagen del Producto</label>
-                                <img src="<?php echo $imgSrc; ?>" id="vista_previa_actual" class="img-thumbnail rounded shadow-sm mb-3" style="height: 180px; width: 180px; object-fit: contain; background: white;">
-                                <label class="btn btn-primary btn-sm fw-bold w-100 mb-2">
-                                    <i class="bi bi-camera-fill me-1"></i> Cambiar Foto
-                                    <input type="file" name="imagen_nueva" id="inputImage" accept="image/png, image/jpeg, image/jpg" hidden onchange="document.getElementById('vista_previa_actual').src = window.URL.createObjectURL(this.files[0])">
-                                </label>
+                                
+                                <div class="position-relative d-inline-block">
+                                    <img src="<?php echo $imgSrc; ?>" id="vista_previa_actual" class="img-thumbnail rounded shadow-sm mb-3" style="height: 180px; width: 180px; object-fit: contain; background: white; transition: 0.3s;">
+                                    
+                                    <div id="loading_ia" class="position-absolute top-50 start-50 translate-middle d-none" style="z-index: 10;">
+                                        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;"></div>
+                                        
+                                    </div>
+                                </div>
+
+                                <div class="d-flex flex-column gap-2 px-3">
+                                    
+                                    
+                                    <label class="btn btn-outline-primary btn-sm fw-bold w-100 mb-2">
+                                        <i class="bi bi-upload me-1"></i> Subir Manual
+                                        <input type="file" name="imagen_nueva" id="inputImage" accept="image/png, image/jpeg, image/jpg" hidden onchange="document.getElementById('vista_previa_actual').src = window.URL.createObjectURL(this.files[0])">
+                                    </label>
+                                </div>
                             </div>
 
                             <div class="col-md-8">
@@ -390,6 +403,9 @@ function togglePesables() {
     }
 }
 document.addEventListener('DOMContentLoaded', togglePesables);
+
+
+
 </script>
 
 <?php include 'includes/layout_footer.php'; ?>

@@ -243,17 +243,18 @@ foreach($productos as $p) {
             $estadoData = $p->activo ? 'activos' : 'pausados';
             if($stock <= $min && $p->tipo !== 'combo') $estadoData .= ' bajo_stock';
 
-            // AGREGADO: Lógica exacta del Dashboard para vencimientos
-            if(!empty($p->fecha_vencimiento)) {
-                $f_venc = strtotime($p->fecha_vencimiento);
-                $f_hoy = strtotime(date('Y-m-d'));
-                $f_limite = strtotime("+$dias_venc days", $f_hoy);
-                
-                // Si la fecha es Hoy o Futura Y está dentro del rango de alerta
-                if($f_venc >= $f_hoy && $f_venc <= $f_limite) {
-                    $estadoData .= ' vencimientos';
-                }
-            }
+            // AGREGADO: Lógica corregida para mostrar vencidos y por vencer
+if(!empty($p->fecha_vencimiento)) {
+    $f_venc = strtotime($p->fecha_vencimiento);
+    $f_hoy = strtotime(date('Y-m-d'));
+    $f_limite = strtotime("+$dias_venc days", $f_hoy);
+    
+    // Si la fecha de vencimiento es menor o igual al límite (incluye el pasado)
+    if($f_venc <= $f_limite) {
+        $estadoData .= ' vencimientos';
+    }
+}
+
         ?>
         <?php 
             // Detectamos si es bajo stock para el filtro del banner
@@ -430,6 +431,9 @@ foreach($productos as $p) {
     }
 
     buscador.addEventListener('keyup', aplicarFiltros);
+    filtroCat.addEventListener('change', aplicarFiltros);
+filtroEst.addEventListener('change', aplicarFiltros);
+orden.addEventListener('change', aplicarFiltros);
     // Leer filtro de la URL al cargar la página
 const urlParams = new URLSearchParams(window.location.search);
     const f = urlParams.get('filtro');

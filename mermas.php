@@ -44,6 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
         $stmt->execute([$id_prod, $cant, $motivo_full, $usuario_id]);
         
         $conexion->prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?")->execute([$cant, $id_prod]);
+        
+        // NUEVO: REGISTRO OBLIGATORIO EN LA CAJA NEGRA (AUDITORÍA)
+        $detalles_audit = "Baja de stock: " . floatval($cant) . " unid. | Motivo: " . $motivo_full;
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'MERMA', ?, NOW())")->execute([$usuario_id, $detalles_audit]);
+
         $conexion->commit();
         header("Location: mermas.php?msg=ok"); exit;
     } catch (Exception $e) { 

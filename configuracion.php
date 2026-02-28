@@ -45,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
             'stock_global_valor' => intval($_POST['stock_global_valor'] ?? 5),
             'ticket_modo' => $_POST['ticket_modo'] ?? 'afip',
             'redondeo_auto' => isset($_POST['redondeo_auto']) ? 1 : 0,
+            'metodo_transferencia' => $_POST['metodo_transferencia'] ?? 'manual',
             'mp_access_token' => trim($_POST['mp_access_token'] ?? ''),
             'mp_user_id' => trim($_POST['mp_user_id'] ?? ''),
             'mp_pos_id' => trim($_POST['mp_pos_id'] ?? '')
@@ -65,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
             'color_barra_nav' => 'Color', 'modulo_clientes' => 'Mod. Clientes', 'modulo_stock' => 'Mod. Stock',
             'modulo_reportes' => 'Mod. Reportes', 'modulo_fidelizacion' => 'Mod. Puntos',
             'stock_use_global' => 'Uso Stock Global', 'stock_global_valor' => 'Valor Stock Global',
-            'ticket_modo' => 'Modo Ticket', 'redondeo_auto' => 'Redondeo Auto',
+            'ticket_modo' => 'Modo Ticket', 'redondeo_auto' => 'Redondeo Auto', 'metodo_transferencia' => 'Recepción Transferencias',
             'mp_access_token' => 'MP Token', 'mp_user_id' => 'MP UserID', 'mp_pos_id' => 'MP POS'
         ];
 
@@ -83,14 +84,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
                 nombre_negocio=?, direccion_local=?, telefono_whatsapp=?, whatsapp_pedidos=?, cuit=?, mensaje_ticket=?, 
                 modulo_clientes=?, modulo_stock=?, modulo_reportes=?, modulo_fidelizacion=?, logo_url=?,
                 dias_alerta_vencimiento=?, dinero_por_punto=?,
-                stock_use_global=?, stock_global_valor=?, ticket_modo=?, redondeo_auto=?,
+                stock_use_global=?, stock_global_valor=?, ticket_modo=?, redondeo_auto=?, metodo_transferencia=?,
                 color_barra_nav=?, mp_access_token=?, mp_user_id=?, mp_pos_id=? WHERE id=1";
 
         $conexion->prepare($sql)->execute([
             $n['nombre_negocio'], $n['direccion_local'], $n['telefono_whatsapp'], $n['whatsapp_pedidos'], $n['cuit'], $n['mensaje_ticket'],
             $n['modulo_clientes'], $n['modulo_stock'], $n['modulo_reportes'], $n['modulo_fidelizacion'], $logo_url,
             $n['dias_alerta_vencimiento'], $n['dinero_por_punto'],
-            $n['stock_use_global'], $n['stock_global_valor'], $n['ticket_modo'], $n['redondeo_auto'],
+            $n['stock_use_global'], $n['stock_global_valor'], $n['ticket_modo'], $n['redondeo_auto'], $n['metodo_transferencia'],
             $n['color_barra_nav'], $n['mp_access_token'], $n['mp_user_id'], $n['mp_pos_id']
         ]);
 
@@ -347,6 +348,20 @@ include 'includes/layout_header.php'; ?></div>
                                         <label class="small ms-2">Redondeo automático en ventas</label>
                                     </div>
                                 </div>
+
+                                <div class="col-12"><hr><h6 class="fw-bold text-primary"><i class="bi bi-bank2"></i> Recepción de Transferencias (Alias / CVU)</h6></div>
+                                <div class="col-md-12 mb-2">
+                                    <div class="p-3 border rounded-3 bg-light">
+                                        <label class="small fw-bold mb-2">¿Cómo querés validar las transferencias manuales de tus clientes?</label>
+                                        <select name="metodo_transferencia" class="form-select border-primary fw-bold text-primary">
+                                            <option value="manual" <?php echo (!isset($conf['metodo_transferencia']) || $conf['metodo_transferencia']=='manual')?'selected':''; ?>>👁️ Validación Manual (Miro mi celular y confirmo en caja)</option>
+                                            <option value="ocr" <?php echo ($conf['metodo_transferencia']=='ocr')?'selected':''; ?>>📷 Escáner de Pantalla Inteligente (Con IA y resguardo de foto)</option>
+                                            <option value="webhook" disabled>📱 Celular Esclavo (100% Automático) [EN DESARROLLO]</option>
+                                        </select>
+                                        <small class="text-muted d-block mt-2"><i class="bi bi-info-circle"></i> El "Escáner de Pantalla" abrirá la cámara de la caja para fotografiar y leer el comprobante del cliente automáticamente.</small>
+                                    </div>
+                                </div>
+
                                 <div class="col-12"><hr><h6 class="fw-bold"><i class="bi bi-qr-code"></i> Configuración Mercado Pago (QR Dinámico)</h6></div>
                                 <div class="col-md-6">
                                     <label class="small fw-bold">Access Token (Producción)</label>

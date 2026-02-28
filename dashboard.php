@@ -37,7 +37,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     if ($es_admin || in_array('ver_productos', $permisos)) {
         $alertas_stock = $conexion->query("SELECT COUNT(p.id) FROM productos p JOIN categorias c ON p.id_categoria = c.id WHERE p.stock_actual <= p.stock_minimo AND p.activo = 1 AND p.tipo != 'combo'")->fetchColumn();
         $dias = $conexion->query("SELECT dias_alerta_vencimiento FROM configuracion WHERE id=1")->fetchColumn() ?: 30;
-        $alertas_vencimiento = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE activo=1 AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)");
+        $alertas_vencimiento = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE activo=1 AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)");
         $alertas_vencimiento->execute([$dias]);
         $alertas_vencimiento = $alertas_vencimiento->fetchColumn();
     }
@@ -133,15 +133,15 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
         </div>
 
         <i class="bi bi-cart4 display-3 position-relative z-1"></i>
-        <i class="bi bi-trophy-fill position-absolute top-50 start-50 translate-middle" style="font-size: 15rem; opacity: 0.05; color: white;"></i>
+        <i class="bi bi-bag-check-fill position-absolute top-50 start-50 translate-middle" style="font-size: 8rem; opacity: 0.05; color: white;"></i>
     </div>
 </a>
 
 <?php if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_combos', $permisos) || in_array('ver_clientes', $permisos) || in_array('ver_proveedores', $permisos) || in_array('ver_sorteos', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">JUGADAS DIARIAS</h5>
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4 row-cols-2 row-cols-md-3 row-cols-lg-5">
     <?php if($es_admin || in_array('ver_productos', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="productos.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-box-seam"></i></div>
             <span class="menu-title">Productos</span><span class="menu-sub">EL PLANTEL</span>
@@ -150,7 +150,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_combos', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="combos.php" class="card-menu">
             <div class="icon-box-lg icon-amarillo"><i class="bi bi-stars"></i></div>
             <span class="menu-title">Combos</span><span class="menu-sub">JUGADAS PREPARADAS</span>
@@ -159,7 +159,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_clientes', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="clientes.php" class="card-menu">
             <div class="icon-box-lg icon-celeste"><i class="bi bi-people-fill"></i></div>
             <span class="menu-title">Clientes</span><span class="menu-sub">LA HINCHADA</span>
@@ -168,7 +168,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_proveedores', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="proveedores.php" class="card-menu">
             <div class="icon-box-lg icon-verde"><i class="bi bi-truck"></i></div>
             <span class="menu-title">Proveedores</span><span class="menu-sub">REFUERZOS</span>
@@ -177,7 +177,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_sorteos', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="sorteos.php" class="card-menu">
             <div class="icon-box-lg icon-violeta"><i class="bi bi-ticket-perforated-fill"></i></div>
             <span class="menu-title">Sorteos</span><span class="menu-sub">RIFAS</span>
@@ -190,18 +190,18 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
 
 <?php if($es_admin || in_array('ver_historial_cajas', $permisos) || in_array('ver_gastos', $permisos) || in_array('ver_inflacion', $permisos) || in_array('ver_cupones', $permisos) || in_array('revista_builder', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">FINANZAS Y MARKETING</h5>
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4 row-cols-2 row-cols-md-3 row-cols-lg-5">
     <?php if($es_admin || in_array('ver_historial_cajas', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
-        <a href="ver_recaudacion.php" class="card-menu" style="border: 2px solid #0d6efd;">
+    <div class="col">
+        <a href="ver_recaudacion.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-safe-fill"></i></div>
-            <span class="menu-title fw-bold text-primary">Recaudación Real</span><span class="menu-sub text-primary">DETALLE CAJA</span>
+            <span class="menu-title">Recaudación Real</span><span class="menu-sub">DETALLE CAJA</span>
         </a>
     </div>
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_gastos', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="gastos.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-cash-stack"></i></div>
             <span class="menu-title">Gastos</span><span class="menu-sub">TARJETAS AMARILLAS</span>
@@ -210,7 +210,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_inflacion', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="precios_masivos.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-graph-up-arrow"></i></div>
             <span class="menu-title">Aumentos</span><span class="menu-sub">MERCADO DE PASES</span>
@@ -219,7 +219,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_cupones', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="gestionar_cupones.php" class="card-menu">
             <div class="icon-box-lg icon-verde"><i class="bi bi-ticket-perforated"></i></div>
             <span class="menu-title">Cupones</span><span class="menu-sub">BENEFICIOS SOCIOS</span>
@@ -228,7 +228,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('revista_builder', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="revista_builder.php" class="card-menu">
             <div class="icon-box-lg icon-violeta"><i class="bi bi-magic"></i></div>
             <span class="menu-title">Revista Builder</span><span class="menu-sub">PIZARRA TÁCTICA</span>
@@ -240,9 +240,9 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
 
 <?php if($es_admin || in_array('ver_reportes', $permisos) || in_array('ver_configuracion', $permisos) || in_array('ver_usuarios', $permisos) || in_array('ver_auditoria', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">ADMINISTRACIÓN</h5>
-<div class="row g-3 mb-5">
+<div class="row g-3 mb-5 row-cols-2 row-cols-md-3 row-cols-lg-5">
     <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="reportes.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-bar-chart-fill"></i></div>
             <span class="menu-title">Reportes</span><span class="menu-sub">RESULTADOS</span>
@@ -251,7 +251,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_configuracion', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="configuracion.php" class="card-menu">
             <div class="icon-box-lg icon-amarillo"><i class="bi bi-sliders"></i></div>
             <span class="menu-title">Configuración</span><span class="menu-sub">REGLAMENTO</span>
@@ -260,7 +260,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_usuarios', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="usuarios.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-shield-lock"></i></div>
             <span class="menu-title">Usuarios</span><span class="menu-sub">CUERPO TÉCNICO</span>
@@ -269,13 +269,19 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
     <?php endif; ?>
 
     <?php if($es_admin || in_array('ver_auditoria', $permisos)): ?>
-    <div class="col-6 col-md-4 col-lg-3">
+    <div class="col">
         <a href="auditoria.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-eye"></i></div>
             <span class="menu-title">Auditoría</span><span class="menu-sub">EL VAR</span>
         </a>
     </div>
     <?php endif; ?>
+    <div class="col">
+        <a href="importador_maestro.php" class="card-menu">
+            <div class="icon-box-lg icon-verde"><i class="bi bi-file-earmark-spreadsheet-fill"></i></div>
+            <span class="menu-title">Importador</span><span class="menu-sub">CARGA MASIVA</span>
+        </a>
+    </div>
 </div>
 <?php endif; ?>
 

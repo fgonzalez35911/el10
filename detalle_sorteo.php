@@ -1,5 +1,5 @@
 <?php
-// detalle_sorteo.php - VERSIÓN PREMIUM FINAL (RESTAURADA + FIX COSTO EXTERNO + WA)
+// detalle_sorteo.php - VERSIÓN PREMIUM FINAL (RESTAURADA)
 session_start();
 require_once 'includes/db.php';
 
@@ -11,7 +11,7 @@ $stmt = $conexion->prepare("SELECT * FROM sorteos WHERE id = ?");
 $stmt->execute([$id]); $sorteo = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$sorteo) { header("Location: sorteos.php"); exit; }
 
-// 2. CARGA DE PREMIOS (Traemos la nueva columna costo_externo)
+// 2. CARGA DE PREMIOS 
 $premios = $conexion->query("SELECT sp.*, p.descripcion as prod_nombre, p.precio_costo, 
     (SELECT COALESCE(SUM(ph.precio_costo * ci.cantidad),0) FROM combo_items ci 
      JOIN combos c ON c.id=ci.id_combo JOIN productos ph ON ci.id_producto=ph.id 
@@ -22,7 +22,6 @@ $premios = $conexion->query("SELECT sp.*, p.descripcion as prod_nombre, p.precio
 $tickets = $conexion->query("SELECT st.*, c.nombre, c.email, c.telefono FROM sorteo_tickets st JOIN clientes c ON st.id_cliente = c.id WHERE id_sorteo = $id ORDER BY numero_ticket ASC")->fetchAll(PDO::FETCH_ASSOC);
 $clientes = $conexion->query("SELECT id, nombre FROM clientes WHERE id != 1 ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
 
-// Catálogo para el modal de edición
 $sqlProds = "SELECT p.id, p.descripcion, p.precio_costo, p.tipo, p.codigo_barras,
             (SELECT COALESCE(SUM(prod_hijo.precio_costo * ci.cantidad), 0) FROM combo_items ci JOIN combos c ON c.id = ci.id_combo JOIN productos prod_hijo ON ci.id_producto = prod_hijo.id WHERE c.codigo_barras = p.codigo_barras) as costo_combo_calc
             FROM productos p WHERE p.activo = 1 ORDER BY p.descripcion ASC";
@@ -36,7 +35,7 @@ foreach($rawProds as $lp) {
 $cantidad_vendidos = count($tickets);
 $numeros_ocupados = array_column($tickets, 'numero_ticket');
 
-// CÁLCULO DE BALANCE (Prioriza costo_externo si es manual)
+// CÁLCULO DE BALANCE
 $costo_premios_total = 0;
 foreach($premios as $pr) { 
     if($pr['tipo'] == 'externo') {
@@ -48,6 +47,7 @@ foreach($premios as $pr) {
 }
 $recaudacion_total = (float)$sorteo['precio_ticket'] * (int)$sorteo['cantidad_tickets'];
 $ganancia_neta = $recaudacion_total - $costo_premios_total;
+
 
 // --- PROCESAR ACCIONES ---
 
@@ -87,29 +87,62 @@ if (isset($_POST['vender_ticket'])) {
     $idUsuario = $_SESSION['usuario_id'];
     $caja = $conexion->query("SELECT id FROM cajas_sesion WHERE id_usuario = $idUsuario AND estado = 'abierta'")->fetch(PDO::FETCH_ASSOC);
     if (!$caja) { echo "<script>alert('¡Abrí caja!'); window.location.href='detalle_sorteo.php?id=$id';</script>"; exit; }
+    
+    $metodo_pago = $_POST['metodo_pago'] ?? 'Efectivo';
+    
     try {
         $conexion->beginTransaction();
         $conexion->prepare("INSERT INTO sorteo_tickets (id_sorteo, id_cliente, numero_ticket) VALUES (?,?,?)")->execute([$id, $_POST['id_cliente'], $_POST['numero_elegido']]);
-        $conexion->prepare("INSERT INTO ventas (codigo_ticket, id_caja_sesion, id_usuario, id_cliente, total, metodo_pago, estado) VALUES (?, ?, ?, ?, ?, 'Efectivo', 'completada')")->execute(["RIFA-{$id}-N-{$_POST['numero_elegido']}", $caja['id'], $idUsuario, $_POST['id_cliente'], $sorteo['precio_ticket']]);
-        $conexion->query("UPDATE cajas_sesion SET total_ventas = total_ventas + {$sorteo['precio_ticket']}, monto_final = monto_final + {$sorteo['precio_ticket']} WHERE id = {$caja['id']}");
+        $conexion->prepare("INSERT INTO ventas (codigo_ticket, id_caja_sesion, id_usuario, id_cliente, total, metodo_pago, estado) VALUES (?, ?, ?, ?, ?, ?, 'completada')")->execute(["RIFA-{$id}-N-{$_POST['numero_elegido']}", $caja['id'], $idUsuario, $_POST['id_cliente'], $sorteo['precio_ticket'], $metodo_pago]);
+        
+        if ($metodo_pago === 'Efectivo') {
+            $conexion->query("UPDATE cajas_sesion SET total_ventas = total_ventas + {$sorteo['precio_ticket']}, monto_final = monto_final + {$sorteo['precio_ticket']} WHERE id = {$caja['id']}");
+        } else {
+            $conexion->query("UPDATE cajas_sesion SET total_ventas = total_ventas + {$sorteo['precio_ticket']} WHERE id = {$caja['id']}");
+        }
+        
         $conexion->commit(); header("Location: detalle_sorteo.php?id=$id&msg=ticket_ok"); exit;
     } catch (Exception $e) { $conexion->rollBack(); die($e->getMessage()); }
 }
 
-// 4. EJECUTAR SORTEO (Lógica de servidor)
+// 4. EJECUTAR SORTEO (LA RULETA RESTAURADA)
 if (isset($_POST['ejecutar_sorteo'])) {
-    $participantes = $conexion->query("SELECT id_cliente, numero_ticket FROM sorteo_tickets WHERE id_sorteo = $id")->fetchAll(PDO::FETCH_ASSOC);
-    if(count($participantes) == 0) { echo json_encode(['error' => 'No hay tickets vendidos.']); exit; }
-    
-    shuffle($participantes); $ganadores = [];
-    foreach ($premios as $idx => $prem) {
-        if (!isset($participantes[$idx])) break;
-        $gan = $participantes[$idx];
-        $cl = $conexion->query("SELECT nombre, email, telefono FROM clientes WHERE id = {$gan['id_cliente']}")->fetch(PDO::FETCH_ASSOC);
-        $ganadores[] = ['posicion' => $prem['posicion'], 'premio' => ($prem['prod_nombre'] ?? $prem['descripcion_externa']), 'cliente' => $cl['nombre'], 'ticket' => $gan['numero_ticket'], 'email' => $cl['email'], 'telefono' => $cl['telefono']];
+    header('Content-Type: application/json');
+    try {
+        $conexion->beginTransaction();
+        $tks = $conexion->query("SELECT st.*, c.nombre as cliente, c.telefono, c.email FROM sorteo_tickets st JOIN clientes c ON st.id_cliente = c.id WHERE id_sorteo = $id")->fetchAll(PDO::FETCH_ASSOC);
+        
+        if(count($tks) == 0) {
+            echo json_encode(['error' => 'No hay tickets vendidos para sortear.']); exit;
+        }
+        
+        $prems = $conexion->query("SELECT sp.*, p.descripcion as prod_nombre FROM sorteo_premios sp LEFT JOIN productos p ON sp.id_producto = p.id WHERE id_sorteo = $id ORDER BY posicion ASC")->fetchAll(PDO::FETCH_ASSOC);
+        
+        shuffle($tks); // Mezclamos
+        $ganadores = [];
+        
+        foreach($prems as $i => $pr) {
+            if(isset($tks[$i])) {
+                $ganador = $tks[$i];
+                $desc_premio = $pr['tipo'] == 'externo' ? $pr['descripcion_externa'] : $pr['prod_nombre'];
+                $ganadores[] = [
+                    'posicion' => $pr['posicion'],
+                    'premio' => $desc_premio,
+                    'cliente' => $ganador['cliente'],
+                    'telefono' => $ganador['telefono'],
+                    'email' => $ganador['email'],
+                    'ticket' => $ganador['numero_ticket']
+                ];
+            }
+        }
+        $ganadores_json = json_encode($ganadores);
+        $conexion->prepare("UPDATE sorteos SET estado = 'finalizado', ganadores_json = ? WHERE id = ?")->execute([$ganadores_json, $id]);
+        $conexion->commit();
+        echo json_encode(['ganadores' => $ganadores]); exit;
+    } catch (Exception $e) {
+        $conexion->rollBack();
+        echo json_encode(['error' => 'Error BD: ' . $e->getMessage()]); exit;
     }
-    $conexion->prepare("UPDATE sorteos SET estado = 'finalizado', ganadores_json = ? WHERE id = ?")->execute([json_encode($ganadores), $id]);
-    echo json_encode(['status' => 'ok', 'ganadores' => $ganadores]); exit;
 }
 
 include 'includes/layout_header.php'; ?>
@@ -174,9 +207,10 @@ include 'includes/layout_header.php'; ?>
         </div></div>
     </div>
     <?php endif; ?>
-
-    <div class="row g-4">
-        <div class="col-md-4">
+    <div class="row g-4 align-items-stretch mb-5">
+        
+        <div class="col-md-4 d-flex flex-column">
+            
             <div class="card shadow-sm border-0 rounded-4 mb-4">
                 <div class="card-header bg-white fw-bold py-3 border-bottom"><i class="bi bi-gift me-2 text-primary"></i>1. Premios y Balance</div>
                 <div class="card-body">
@@ -199,31 +233,99 @@ include 'includes/layout_header.php'; ?>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="col-md-8">
-            <div class="card shadow-sm border-0 rounded-4 h-100">
-                <div class="card-header bg-white fw-bold py-3">2. Grilla de Tickets (<?php echo $cantidad_vendidos; ?>)</div>
-                <div class="card-body p-4">
+            <div class="card shadow-sm border-0 rounded-4 text-white text-center flex-grow-1 d-flex flex-column justify-content-center" style="background: linear-gradient(135deg, #102A57 0%, #1a458f 100%) !important;">
+                <div class="card-body p-4 d-flex flex-column justify-content-center align-items-center">
+                    <i class="bi bi-tags display-5 opacity-50 mb-3"></i>
+                    <h6 class="fw-bold text-uppercase mb-1 tracking-wider text-white-50">Valor por Número</h6>
+                    <h1 class="display-3 fw-bold mb-0 text-white">$<?php echo number_format($sorteo['precio_ticket'], 0, ',', '.'); ?></h1>
+                    
                     <?php if($sorteo['estado'] == 'activo'): ?>
-                    <div class="row g-4">
-                        <div class="col-md-5">
-                            <form method="POST" id="formVenta" class="bg-light p-4 rounded-4 border shadow-sm">
-                                <label class="small fw-bold text-muted uppercase mb-2">Cliente</label>
-                                <div class="input-group mb-4">
-                                    <select name="id_cliente" id="select_clientes" class="form-select fw-bold shadow-sm"><?php foreach($clientes as $c): ?><option value="<?php echo $c['id']; ?>"><?php echo $c['nombre']; ?></option><?php endforeach; ?></select>
-                                    <button class="btn btn-success" type="button" data-bs-toggle="modal" data-bs-target="#modalClienteRapido"><i class="bi bi-person-plus-fill"></i></button>
-                                </div>
-                                <input type="text" name="numero_elegido" id="inputNumeroElegido" class="form-control mb-4 text-center fw-bold fs-2 text-primary bg-white shadow-sm" readonly placeholder="--">
-                                <button type="button" class="btn btn-primary w-100 py-3 fw-bold rounded-pill" onclick="validarVentaPro()"><i class="bi bi-cash-coin me-2"></i>COBRAR TICKET</button>
-                                <input type="submit" name="vender_ticket" id="submitReal" style="display:none;"></form></div>
-                        <div class="col-md-7"><div class="grid-numeros"><?php for($i=1; $i<=$sorteo['cantidad_tickets']; $i++): $ocupado = in_array($i, $numeros_ocupados); ?><div class="num-box <?php echo $ocupado ? 'num-ocupado' : 'num-libre'; ?>" onclick="<?php echo $ocupado ? '' : "seleccionarNumeroIndividual($i, this)"; ?>"><?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?></div><?php endfor; ?></div></div>
-                    </div>
-                    <?php else: ?><div class="text-center py-5 opacity-50"><i class="bi bi-lock display-1"></i><h4 class="mt-3 fw-bold">RIFA BLOQUEADA</h4><p>Debe confirmar la rifa arriba para vender tickets.</p></div><?php endif; ?>
+                        <div class="mt-auto pt-4 w-100">
+                            <div class="p-3 rounded-3 bg-white bg-opacity-10 border border-white border-opacity-25 w-100">
+                                <p class="small opacity-100 mb-0 fw-bold"><i class="bi bi-arrow-right-circle me-1"></i> Haga clic en la grilla para cobrar</p>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
+
         </div>
-    </div>
+
+        <div class="col-md-8 d-flex flex-column">
+            
+            <div class="card shadow-sm border-0 rounded-4 flex-grow-1 d-flex flex-column">
+                <div class="card-header bg-white fw-bold py-3">2. Terminal de Cobro y Grilla (<?php echo $cantidad_vendidos; ?> Vendidos)</div>
+                <div class="card-body p-4 d-flex flex-column">
+                    <?php if($sorteo['estado'] == 'activo'): ?>
+                    
+                        <form method="POST" id="formVenta" class="bg-light p-3 rounded-4 border shadow-sm mb-4">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-4">
+                                    <label class="small fw-bold text-muted uppercase mb-1">Cliente</label>
+                                    <div class="input-group">
+                                        <select name="id_cliente" id="select_clientes" class="form-select fw-bold shadow-sm">
+                                            <?php foreach($clientes as $c): ?>
+                                                <option value="<?php echo $c['id']; ?>"><?php echo $c['nombre']; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <button class="btn btn-success" type="button" data-bs-toggle="modal" data-bs-target="#modalClienteRapido"><i class="bi bi-person-plus-fill"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted uppercase mb-1">Nº</label>
+                                    <input type="text" name="numero_elegido" id="inputNumeroElegido" class="form-control text-center fw-bold fs-5 text-primary bg-white shadow-sm" readonly placeholder="--">
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted uppercase mb-1">Forma de Pago</label>
+                                    <select name="metodo_pago" id="metodo_pago_sorteo" class="form-select fw-bold shadow-sm">
+                                        <option value="Efectivo">💵 Efectivo</option>
+                                        <option value="mercadopago">📱 MP (QR)</option>
+                                        <option value="Transferencia">🏦 Transf.</option>
+                                        <option value="Debito">💳 Débito</option>
+                                        <option value="Credito">💳 Crédito</option>
+                                    </select>
+                                </div>
+
+                                <div class="col-md-3">
+                                    <button type="button" id="btn-cobrar-ticket" class="btn btn-primary w-100 fw-bold rounded-3 shadow py-2" onclick="validarVentaPro()">
+                                        <i class="bi bi-cash-coin me-1"></i>COBRAR
+                                    </button>
+                                    <button type="button" id="btn-sync-mp-sorteo" class="btn btn-info text-white w-100 fw-bold rounded-3 shadow py-2 d-none" onclick="enviarMontoAMercadoPagoSorteo()">
+                                        <i class="bi bi-qr-code-scan me-1"></i>AL QR
+                                    </button>
+                                    <input type="submit" name="vender_ticket" id="submitReal" style="display:none;">
+                                </div>
+                            </div>
+                        </form>
+
+                        <div class="flex-grow-1">
+                            <div class="grid-numeros h-100" style="max-height: 520px;">
+                                <?php for($i=1; $i<=$sorteo['cantidad_tickets']; $i++): 
+                                    $ocupado = in_array($i, $numeros_ocupados); 
+                                ?>
+                                    <div class="num-box <?php echo $ocupado ? 'num-ocupado' : 'num-libre'; ?>" onclick="<?php echo $ocupado ? '' : "seleccionarNumeroIndividual($i, this)"; ?>">
+                                        <?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                    </div>
+                                <?php endfor; ?>
+                            </div>
+                        </div>
+
+                    <?php else: ?>
+                        <div class="text-center py-5 opacity-50 d-flex flex-column justify-content-center h-100">
+                            <i class="bi bi-lock display-1"></i>
+                            <h4 class="mt-3 fw-bold">RIFA BLOQUEADA</h4>
+                            <p>Debe confirmar la rifa arriba para vender tickets.</p>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+        </div>
+    </div>                    
+    
 </div>
 
 <div class="modal fade" id="modalEditarPro" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-centered"><form method="POST" class="modal-content border-0 shadow-lg rounded-4"><input type="hidden" name="premios_json" id="edit_prems_json"><div class="modal-header bg-primary text-white border-0 py-3"><h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>Editar Sorteo Completo</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body p-4"><div class="row"><div class="col-md-4 border-end">
@@ -281,8 +383,6 @@ include 'includes/layout_header.php'; ?>
     function prepE() { let prems = []; $('.fila-e').each(function(){ let t = $(this).find('.t-e').val(); let obj = { tipo: t, costo: $(this).find('.c-e').val() }; if(t==='interno') { let s = $(this).find('.s-e'); obj.id = s.val(); obj.nombre = s.find(':selected').text(); } else { obj.nombre = $(this).find('.i-m-e').val(); } prems.push(obj); }); $('#edit_prems_json').val(JSON.stringify(prems)); }
     function seleccionarNumeroIndividual(n, el) { $('#inputNumeroElegido').val(n); $('.num-box').removeClass('num-seleccionado'); $(el).addClass('num-seleccionado'); }
 
-    // --- FUNCIONES DE SORTEO REPARADAS ---
-
     function lanzarConfirmacionFinal() {
         Swal.fire({
             title: '¿Confirmar Sorteo?',
@@ -303,9 +403,107 @@ include 'includes/layout_header.php'; ?>
         });
     }
 
+    // Alternar botones según el método de pago
+    $('#metodo_pago_sorteo').change(function() {
+        if ($(this).val() === 'mercadopago') {
+            $('#btn-cobrar-ticket').addClass('d-none');
+            $('#btn-sync-mp-sorteo').removeClass('d-none');
+        } else {
+            $('#btn-cobrar-ticket').removeClass('d-none');
+            $('#btn-sync-mp-sorteo').addClass('d-none');
+        }
+    });
+
+    // --- LÓGICA DE COBRO LIMPIA SIN RADAR ---
     function validarVentaPro() { 
-        if(!$('#inputNumeroElegido').val()){ Swal.fire('Error', 'Elegí un número.', 'error'); return; } 
-        $('#submitReal').click(); 
+        let num = $('#inputNumeroElegido').val();
+        if(!num) { Swal.fire('Error', 'Elegí un número en la grilla.', 'error'); return; } 
+        
+        let metodo = $('#metodo_pago_sorteo').val();
+        let metodoNombre = $('#metodo_pago_sorteo option:selected').text();
+        let precioTicket = <?php echo $sorteo['precio_ticket']; ?>;
+
+        if (metodo === 'Transferencia') {
+            Swal.fire({
+                title: 'Confirmar Transferencia',
+                html: `¿Ya verificaste en tu app que ingresaron los <b>$${precioTicket}</b> por el ticket <b>#${num}</b>?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, ya ingresó',
+                cancelButtonText: 'Aún no',
+                confirmButtonColor: '#198754'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#submitReal').click(); 
+                }
+            });
+        } else {
+            Swal.fire({
+                title: '¿Confirmar Pago?',
+                html: `Ticket: <b class="text-primary fs-4">#${num}</b><br>Método: <b>${metodoNombre}</b><br><br>¿Ya recibiste el dinero?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, cobrar ticket',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#198754'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#submitReal').click(); 
+                }
+            });
+        }
+    }
+
+    // --- QR DE MERCADO PAGO EN SORTEO CON BOTÓN CANCELAR ---
+    let intervaloMPSorteo = null;
+
+    function enviarMontoAMercadoPagoSorteo() {
+        if(!$('#inputNumeroElegido').val()){ Swal.fire('Error', 'Elegí un número en la grilla.', 'error'); return; } 
+        
+        let totalRifa = <?php echo $sorteo['precio_ticket']; ?>; 
+        const btn = $('#btn-sync-mp-sorteo');
+        
+        btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Esperando...');
+
+        $.post('acciones/mp_sync.php', { total: totalRifa }, function(res) {
+            if(res.status === 'success') {
+                const ref = res.referencia;
+                
+                Swal.fire({ 
+                    icon: 'info', 
+                    title: 'QR Activado', 
+                    text: 'El cliente debe escanear el QR en el mostrador.', 
+                    showConfirmButton: false,
+                    showCancelButton: true,
+                    cancelButtonText: '🛑 Cancelar Espera',
+                    cancelButtonColor: '#dc3545',
+                    allowOutsideClick: false
+                }).then((result) => {
+                    if (result.dismiss === Swal.DismissReason.cancel) {
+                        if(intervaloMPSorteo) clearInterval(intervaloMPSorteo);
+                        btn.prop('disabled', false).html('<i class="bi bi-qr-code-scan me-1"></i>AL QR');
+                    }
+                });
+
+                if(intervaloMPSorteo) clearInterval(intervaloMPSorteo);
+                
+                intervaloMPSorteo = setInterval(function() {
+                    $.getJSON('acciones/verificar_pago_mp.php', { referencia: ref }, function(statusRes) {
+                        if(statusRes.estado === 'pagado') {
+                            clearInterval(intervaloMPSorteo);
+                            Swal.close();
+                            $('#submitReal').click(); 
+                        }
+                    });
+                }, 3000);
+            } else {
+                btn.prop('disabled', false).html('<i class="bi bi-qr-code-scan me-1"></i>AL QR');
+                Swal.fire('Error', res.msg, 'error');
+            }
+        }, 'json').fail(function() {
+            btn.prop('disabled', false).html('<i class="bi bi-qr-code-scan me-1"></i>AL QR');
+            Swal.fire('Error', 'No se pudo conectar con MercadoPago', 'error');
+        });
     }
 
     function iniciarSorteoVisual() {
@@ -324,7 +522,6 @@ include 'includes/layout_header.php'; ?>
     }
 
     function realizarSorteoReal() {
-        // MOSTRAR LA ZONA DE RULETA EN LA PÁGINA
         const zona = document.getElementById('zonaSorteo');
         const display = document.getElementById('rouletteDisplay');
         zona.classList.remove('d-none');
@@ -341,78 +538,69 @@ include 'includes/layout_header.php'; ?>
                 Swal.fire('Error', data.error, 'error'); 
                 return; 
             }
-            // INICIAR EL SHOW
             animarGanadoresSorteo(data.ganadores, 0);
         }).catch(err => {
             Swal.fire('Error', 'Problema al conectar con el servidor', 'error');
         });
     }
 
-    // REEMPLAZO QUIRÚRGICO: RULETA DE NÚMEROS + RESUMEN DETALLADO
-function animarGanadoresSorteo(ganadores, index) {
-    if (index >= ganadores.length) {
-        // CONSTRUIMOS EL RESUMEN CON TODOS LOS DATOS (Quién, Qué y Correo)
-        let resumenHTML = '<div class="text-start mt-3 p-3 bg-light rounded border small">';
-        ganadores.forEach(g => {
-            resumenHTML += `<p class="mb-2 border-bottom pb-1">
-                ✅ <b>Premio #${g.posicion} (${g.premio}):</b><br>
-                👤 Ganador: ${g.cliente}<br>
-                📧 Correo: ${g.email || 'No registrado'}
-            </p>`;
-        });
-        resumenHTML += '</div>';
-
-        setTimeout(() => {
-            Swal.fire({
-                title: '¡Sorteo Finalizado!',
-                html: `Se procesaron todos los premios con éxito.<br>${resumenHTML}<br><br><b>Redireccionando en 10 segundos...</b>`,
-                icon: 'success',
-                confirmButtonText: 'Entendido',
-                confirmButtonColor: '#102A57',
-                timer: 10000,
-                timerProgressBar: true,
-                allowOutsideClick: false
-            }).then(() => {
-                window.location.href = 'sorteos.php';
+    function animarGanadoresSorteo(ganadores, index) {
+        if (index >= ganadores.length) {
+            let resumenHTML = '<div class="text-start mt-3 p-3 bg-light rounded border small">';
+            ganadores.forEach(g => {
+                resumenHTML += `<p class="mb-2 border-bottom pb-1">
+                    ✅ <b>Premio #${g.posicion} (${g.premio}):</b><br>
+                    👤 Ganador: ${g.cliente}<br>
+                    📧 Correo: ${g.email || 'No registrado'}
+                </p>`;
             });
-        }, 1500);
-        return;
-    }
+            resumenHTML += '</div>';
 
-    const g = ganadores[index];
-    const display = document.getElementById('rouletteDisplay');
-    document.getElementById('premioActualDisplay').innerText = `Sorteando: ${g.premio}`;
-    
-    let counter = 0;
-    // EFECTO CASINO: Solo números al azar del 1 al 100
-    const casinoInterval = setInterval(() => {
-        // Generamos un número aleatorio entre 01 y 99 para el efecto visual
-        display.innerText = Math.floor(Math.random() * 99 + 1).toString().padStart(3, '0');
-        counter++;
-
-        if (counter > 25) { 
-            clearInterval(casinoInterval);
-            
-            // MOSTRAR EL NOMBRE DEL GANADOR REAL AL FRENAR
-            display.innerText = g.cliente.toUpperCase();
-            
-            // Envío del Email en segundo plano (silencioso)
-            let fde = new FormData();
-            fde.append('id_sorteo', '<?php echo $id; ?>');
-            fde.append('cliente', g.cliente);
-            fde.append('email', g.email);
-            fde.append('premio', g.premio);
-            fde.append('puesto', g.posicion);
-            fde.append('ticket', g.ticket);
-            fetch('acciones/enviar_email_ganador.php', { method: 'POST', body: fde });
-
-            // Pausa de 3.5 segundos para que el dueño vea el nombre antes del próximo premio
-            setTimeout(() => { 
-                animarGanadoresSorteo(ganadores, index + 1); 
-            }, 3500);
+            setTimeout(() => {
+                Swal.fire({
+                    title: '¡Sorteo Finalizado!',
+                    html: `Se procesaron todos los premios con éxito.<br>${resumenHTML}<br><br><b>Redireccionando en 10 segundos...</b>`,
+                    icon: 'success',
+                    confirmButtonText: 'Entendido',
+                    confirmButtonColor: '#102A57',
+                    timer: 10000,
+                    timerProgressBar: true,
+                    allowOutsideClick: false
+                }).then(() => {
+                    window.location.href = 'sorteos.php';
+                });
+            }, 1500);
+            return;
         }
-    }, 80);
-}
+
+        const g = ganadores[index];
+        const display = document.getElementById('rouletteDisplay');
+        document.getElementById('premioActualDisplay').innerText = `Sorteando: ${g.premio}`;
+        
+        let counter = 0;
+        const casinoInterval = setInterval(() => {
+            display.innerText = Math.floor(Math.random() * 99 + 1).toString().padStart(3, '0');
+            counter++;
+
+            if (counter > 25) { 
+                clearInterval(casinoInterval);
+                display.innerText = g.cliente.toUpperCase();
+                
+                let fde = new FormData();
+                fde.append('id_sorteo', '<?php echo $id; ?>');
+                fde.append('cliente', g.cliente);
+                fde.append('email', g.email);
+                fde.append('premio', g.premio);
+                fde.append('puesto', g.posicion);
+                fde.append('ticket', g.ticket);
+                fetch('acciones/enviar_email_ganador.php', { method: 'POST', body: fde });
+
+                setTimeout(() => { 
+                    animarGanadoresSorteo(ganadores, index + 1); 
+                }, 3500);
+            }
+        }, 80);
+    }
 
     $('#formClienteRapido').submit(function(e) {
         e.preventDefault();

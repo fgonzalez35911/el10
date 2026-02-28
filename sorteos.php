@@ -49,17 +49,17 @@ $stmtS = $conexion->prepare($sqlSorteos);
 $stmtS->execute([$desde, $hasta]);
 $sorteos = $stmtS->fetchAll(PDO::FETCH_ASSOC);
 
-// Productos para el simulador (Fix NaN - Traemos precio_costo real)
-$sqlProds = "SELECT p.id, p.descripcion, p.tipo, p.precio_costo, p.codigo_barras,
+// Productos para el simulador (Traemos Costo, Público y Código de Barras)
+$sqlProds = "SELECT p.id, p.descripcion, p.tipo, p.precio_costo, p.precio_venta, p.precio_oferta, p.codigo_barras,
             (SELECT COALESCE(SUM(prod_hijo.precio_costo * ci.cantidad), 0) FROM combo_items ci JOIN combos c ON c.id = ci.id_combo JOIN productos prod_hijo ON ci.id_producto = prod_hijo.id WHERE c.codigo_barras = p.codigo_barras) as costo_combo_calculado
             FROM productos p WHERE p.activo = 1 ORDER BY p.descripcion ASC";
 $rawProds = $conexion->query($sqlProds)->fetchAll(PDO::FETCH_ASSOC);
 $prods_simulador = [];
 foreach($rawProds as $p) {
     $p['costo_real'] = ($p['tipo'] === 'combo' && $p['costo_combo_calculado'] > 0) ? $p['costo_combo_calculado'] : $p['precio_costo'];
+    $p['precio_publico'] = (floatval($p['precio_oferta']) > 0) ? $p['precio_oferta'] : $p['precio_venta'];
     $prods_simulador[] = $p;
 }
-
 // KPIs PARA WIDGETS
 $total_sorteos = count($sorteos);
 $activas = 0; foreach($sorteos as $s) { if($s['estado'] == 'activo') $activas++; }
@@ -180,15 +180,75 @@ include 'includes/layout_header.php';
     </form></div>
 </div>
 
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
 <script>
 const productosSimulador = <?php echo json_encode($prods_simulador); ?>;
 let contadorPremios = 0;
+// Motor oculto para buscar por código de barras sin mostrarlo en el texto
+function matchPorCodigoOTexto(params, data) {
+    if ($.trim(params.term) === '') return data;
+    if (typeof data.text === 'undefined') return null;
+    let busqueda = params.term.toLowerCase();
+    let textoVisible = data.text.toLowerCase();
+    let codigoBarra = data.element ? (data.element.getAttribute('data-codigo') || '').toLowerCase() : '';
+    
+    // Busca coincidencias en el nombre o en el código de barras oculto
+    if (textoVisible.indexOf(busqueda) > -1 || codigoBarra.indexOf(busqueda) > -1) {
+        return data;
+    }
+    return null;
+}
+
 function agregarFilaPremio() {
     contadorPremios++;
-    let optionsHtml = '<option value="0" data-costo="0">Seleccionar Producto...</option>';
-    productosSimulador.forEach(p => { optionsHtml += `<option value="${p.id}" data-costo="${p.costo_real}" data-nombre="${p.descripcion}">${(p.tipo === 'combo') ? '[PACK] ' : ''}${p.descripcion} ($${parseFloat(p.costo_real).toLocaleString()})</option>`; });
-    const html = `<div class="fila-premio d-flex gap-2 align-items-center mb-2" id="fila_premio_${contadorPremios}"><div class="fw-bold text-secondary" style="width:25px;">#${contadorPremios}</div><div style="width:140px;"><select class="form-select form-select-sm tipo-premio" onchange="cambiarTipoPremio(${contadorPremios}, this)"><option value="interno">Stock</option><option value="manual">Manual</option></select></div><div class="flex-grow-1" id="div_prod_${contadorPremios}"><select class="form-select form-select-sm select-prod" onchange="actualizarCosto(${contadorPremios}, this)">${optionsHtml}</select></div><div class="flex-grow-1 d-none" id="div_manual_${contadorPremios}"><input type="text" class="form-control form-control-sm input-manual" placeholder="Premio..."></div><div class="input-group input-group-sm" style="width:120px;"><span class="input-group-text">$</span><input type="number" step="0.01" class="form-control costo-item" id="costo_${contadorPremios}" value="0" oninput="calcularSimulacion()"></div><button type="button" class="btn btn-sm btn-outline-danger" onclick="eliminarFila(${contadorPremios})"><i class="bi bi-trash"></i></button></div>`;
+    let optionsHtml = '<option value="0" data-costo="0" data-codigo="">Buscar o escanear...</option>';
+    productosSimulador.forEach(p => { 
+        let costo = parseFloat(p.costo_real).toLocaleString('es-AR');
+        let publico = parseFloat(p.precio_publico).toLocaleString('es-AR');
+        let cb = p.codigo_barras || ''; // Guardamos el código de barras de forma invisible
+        
+        // ELIMINAMOS EL CÓDIGO DE BARRAS DEL TEXTO VISIBLE
+        optionsHtml += `<option value="${p.id}" data-costo="${p.costo_real}" data-codigo="${cb}" data-nombre="${p.descripcion}">${(p.tipo === 'combo') ? '[PACK] ' : ''}${p.descripcion} (Público: $${publico} | Costo: $${costo})</option>`; 
+    });
+    
+    const html = `<div class="fila-premio d-flex gap-2 align-items-center mb-2" id="fila_premio_${contadorPremios}">
+        <div class="fw-bold text-secondary" style="width:25px;">#${contadorPremios}</div>
+        <div style="width:100px;">
+            <select class="form-select form-select-sm tipo-premio" onchange="cambiarTipoPremio(${contadorPremios}, this)">
+                <option value="interno">Stock</option>
+                <option value="manual">Manual</option>
+            </select>
+        </div>
+        <div class="flex-grow-1" id="div_prod_${contadorPremios}" style="min-width: 200px;">
+            <select class="form-select form-select-sm select-prod" id="select_prod_${contadorPremios}" onchange="actualizarCosto(${contadorPremios}, this)">
+                ${optionsHtml}
+            </select>
+        </div>
+        <div class="flex-grow-1 d-none" id="div_manual_${contadorPremios}">
+            <input type="text" class="form-control form-control-sm input-manual" placeholder="Escriba el premio manual...">
+        </div>
+        <div class="input-group input-group-sm" style="width:160px;">
+            <span class="input-group-text bg-light border-end-0 fw-bold" title="Costo Real">$</span>
+            <input type="number" step="0.01" class="form-control costo-item border-start-0 text-dark fw-bold" id="costo_${contadorPremios}" value="0" oninput="calcularSimulacion()" readonly>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="eliminarFila(${contadorPremios})"><i class="bi bi-trash"></i></button>
+    </div>`;
+    
     document.getElementById('contenedor_premios').insertAdjacentHTML('beforeend', html);
+    
+    // Inicializamos el buscador con nuestro "motor" oculto
+    $(`#select_prod_${contadorPremios}`).select2({
+        theme: 'bootstrap-5',
+        dropdownParent: $('#modalNuevoSorteo'),
+        width: '100%',
+        placeholder: "Escribe o escanea...",
+        matcher: matchPorCodigoOTexto
+    });
+    
     calcularSimulacion();
 }
 function cambiarTipoPremio(id, select) {
