@@ -10,7 +10,10 @@ $rutas_db = [__DIR__ . '/db.php', __DIR__ . '/includes/db.php', 'db.php', 'inclu
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
-
+$rol_usuario = $_SESSION['rol'] ?? 3;
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = ($rol_usuario <= 2);
+$conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 // --- 1. PROCESAR GUARDADO CONFIGURACIÓN GENERAL ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
     if (!$es_admin) {
@@ -174,7 +177,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
         die("Error al guardar configuración AFIP: " . $e->getMessage());
     }
 }
-
+// --- PROCESAR GUARDADO PERSONALIZACIÓN ---
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_personalizacion'])) {
+    if (!$es_admin) die("Acceso denegado.");
+    $sql = "UPDATE configuracion SET 
+            label_seccion_1=?, label_seccion_2=?, label_seccion_3=?, label_punto_venta=?,
+            label_productos=?, label_combos=?, label_clientes=?, label_proveedores=?, label_sorteos=?,
+            label_recaudacion=?, label_gastos=?, label_aumentos=?, label_cupones=?, label_revista=?,
+            label_reportes=?, label_config=?, label_usuarios=?, label_auditoria=?, label_importador=?,
+            label_categorias=?, label_mermas=?, label_respaldo=? 
+            WHERE id=1";
+    $params = [
+        $_POST['label_seccion_1'], $_POST['label_seccion_2'], $_POST['label_seccion_3'], $_POST['label_punto_venta'],
+        $_POST['label_productos'], $_POST['label_combos'], $_POST['label_clientes'], $_POST['label_proveedores'], $_POST['label_sorteos'],
+        $_POST['label_recaudacion'], $_POST['label_gastos'], $_POST['label_aumentos'], $_POST['label_cupones'], $_POST['label_revista'],
+        $_POST['label_reportes'], $_POST['label_config'], $_POST['label_usuarios'], $_POST['label_auditoria'], $_POST['label_importador'],
+        $_POST['label_categorias'], $_POST['label_mermas'], $_POST['label_respaldo']
+    ];
+    $conexion->prepare($sql)->execute($params);
+    header("Location: configuracion.php?msg=guardado"); exit;
+}
 // 3. OBTENER DATOS
 $conf = $conexion->query("SELECT * FROM configuracion LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 $afip = $conexion->query("SELECT * FROM afip_config WHERE id=1")->fetch(PDO::FETCH_ASSOC);
@@ -248,6 +270,7 @@ include 'includes/layout_header.php'; ?></div>
     <ul class="nav nav-tabs mb-4" id="configTab" role="tablist">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#general">🏢 General</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#afip">🧾 Facturación AFIP</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#personalizacion">🎨 Personalización</button></li>
     </ul>
 
     <div class="tab-content">
@@ -432,10 +455,50 @@ include 'includes/layout_header.php'; ?></div>
                             <button type="submit" name="guardar_afip" class="btn btn-dark">ACTUALIZAR DATOS AFIP</button>
                         </div>
                     </div>
-                </form>
-            </div>
-        </div>
+               </form>
     </div>
+</div>
+
+
+                                        
+
+
+    <div class="tab-pane fade" id="personalizacion">
+    <div class="card border-0 shadow-sm rounded-4 p-4">
+        <form method="POST">
+            <input type="hidden" name="guardar_personalizacion" value="1">
+            <h6 class="text-primary fw-bold mb-3 border-bottom pb-2">Secciones y Punto de Venta</h6>
+            <div class="row g-3 mb-4">
+                <div class="col-md-3"><label class="small fw-bold">Sección 1</label><input type="text" name="label_seccion_1" class="form-control" value="<?php echo $conf['label_seccion_1']; ?>"></div>
+                <div class="col-md-3"><label class="small fw-bold">Sección 2</label><input type="text" name="label_seccion_2" class="form-control" value="<?php echo $conf['label_seccion_2']; ?>"></div>
+                <div class="col-md-3"><label class="small fw-bold">Sección 3</label><input type="text" name="label_seccion_3" class="form-control" value="<?php echo $conf['label_seccion_3']; ?>"></div>
+                <div class="col-md-3"><label class="small fw-bold">POS (Mística)</label><input type="text" name="label_punto_venta" class="form-control" value="<?php echo $conf['label_punto_venta']; ?>"></div>
+            </div>
+            <h6 class="text-primary fw-bold mb-3 border-bottom pb-2">Botones</h6>
+            <div class="row g-3 mb-4">
+                <div class="col-md-4"><label class="small">Productos</label><input type="text" name="label_productos" class="form-control" value="<?php echo $conf['label_productos']; ?>"></div>
+                <div class="col-md-4"><label class="small">Combos</label><input type="text" name="label_combos" class="form-control" value="<?php echo $conf['label_combos']; ?>"></div>
+                <div class="col-md-4"><label class="small">Clientes</label><input type="text" name="label_clientes" class="form-control" value="<?php echo $conf['label_clientes']; ?>"></div>
+                <div class="col-md-4"><label class="small">Proveedores</label><input type="text" name="label_proveedores" class="form-control" value="<?php echo $conf['label_proveedores']; ?>"></div>
+                <div class="col-md-4"><label class="small">Sorteos</label><input type="text" name="label_sorteos" class="form-control" value="<?php echo $conf['label_sorteos']; ?>"></div>
+                <div class="col-md-4"><label class="small">Recaudación</label><input type="text" name="label_recaudacion" class="form-control" value="<?php echo $conf['label_recaudacion']; ?>"></div>
+                <div class="col-md-4"><label class="small">Gastos</label><input type="text" name="label_gastos" class="form-control" value="<?php echo $conf['label_gastos']; ?>"></div>
+                <div class="col-md-4"><label class="small">Aumentos</label><input type="text" name="label_aumentos" class="form-control" value="<?php echo $conf['label_aumentos']; ?>"></div>
+                <div class="col-md-4"><label class="small">Cupones</label><input type="text" name="label_cupones" class="form-control" value="<?php echo $conf['label_cupones']; ?>"></div>
+                <div class="col-md-4"><label class="small">Revista</label><input type="text" name="label_revista" class="form-control" value="<?php echo $conf['label_revista']; ?>"></div>
+                <div class="col-md-4"><label class="small">Reportes</label><input type="text" name="label_reportes" class="form-control" value="<?php echo $conf['label_reportes']; ?>"></div>
+                <div class="col-md-4"><label class="small">Configuración</label><input type="text" name="label_config" class="form-control" value="<?php echo $conf['label_config']; ?>"></div>
+                <div class="col-md-4"><label class="small">Usuarios</label><input type="text" name="label_usuarios" class="form-control" value="<?php echo $conf['label_usuarios']; ?>"></div>
+                <div class="col-md-4"><label class="small">Auditoría</label><input type="text" name="label_auditoria" class="form-control" value="<?php echo $conf['label_auditoria']; ?>"></div>
+                <div class="col-md-4"><label class="small">Importador</label><input type="text" name="label_importador" class="form-control" value="<?php echo $conf['label_importador'] ; ?>"></div>
+                <div class="col-md-4"><label class="small">Categorías</label><input type="text" name="label_categorias" class="form-control" value="<?php echo $conf['label_categorias'] ?? 'RUBROS'; ?>"></div>
+                <div class="col-md-4"><label class="small">Mermas</label><input type="text" name="label_mermas" class="form-control" value="<?php echo $conf['label_mermas'] ?? 'BAJAS STOCK'; ?>"></div>
+                <div class="col-md-4"><label class="small">Respaldo</label><input type="text" name="label_respaldo" class="form-control" value="<?php echo $conf['label_respaldo'] ?? 'SEGURIDAD'; ?>"></div>
+            </div>
+            <button type="submit" name="guardar_personalizacion" class="btn btn-primary w-100 fw-bold rounded-pill">GUARDAR MÍSTICA COMPLETA</button>
+        </form>
+    </div>
+</div>
 </div>
 
 <script>

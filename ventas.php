@@ -10,15 +10,29 @@ $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
 
 require_once 'check_security.php';
 
+
+
 $usuario_id = $_SESSION['usuario_id'];
-$stmt = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
+
+// 1. Buscamos si tenés una caja abierta y cuándo se abrió
+$stmt = $conexion->prepare("SELECT id, fecha_apertura FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
 $stmt->execute([$usuario_id]);
 $caja = $stmt->fetch(PDO::FETCH_ASSOC);
 
+// 2. Si NO hay ninguna caja abierta (ni de hoy ni vieja), te manda a abrir una
 if(!$caja) {
-    header("Location: apertura_caja.php"); exit;
+    header("Location: apertura_caja.php"); 
+    exit;
 }
+
+// 3. Si hay una caja, guardamos su ID para las ventas
 $id_caja_actual = $caja['id'];
+
+// 4. Comparamos la fecha: ¿Se abrió antes de hoy?
+$fecha_caja = date('Y-m-d', strtotime($caja['fecha_apertura']));
+$hoy = date('Y-m-d');
+$caja_vencida = ($fecha_caja < $hoy);
+
 
 // --- FIX ERROR 500: CONSULTA SEGURA DE CONFIGURACIÓN ---
 $metodo_transferencia = 'manual'; // Por defecto
@@ -361,11 +375,30 @@ try {
         const modalMixto = { show: function(){ $('#modalPagoMixto').modal('show'); }, hide: function(){ $('#modalPagoMixto').modal('hide'); } };
 
        $(document).ready(function() { 
-            verificarVentaPausada(); 
-            cargarRapidos('');
-            // ESTO ES LO QUE FALTA: Vincula el botón con la función de cobro
-            $('#btn-finalizar').on('click', ejecutarVentaFinalEnBD);
+    // Bloqueo de seguridad si la caja es de un día anterior
+    <?php if($caja_vencida): ?>
+        // Desactivamos el botón de finalizar venta
+        $('#btn-finalizar').prop('disabled', true).removeClass('btn-success').addClass('btn-secondary');
+
+        Swal.fire({
+            icon: 'error',
+            title: 'Caja de día anterior',
+            text: 'La sesión abierta es del <?php echo date('d/m/Y', strtotime($caja['fecha_apertura'])); ?>. Por seguridad, debés cerrarla antes de realizar ventas nuevas.',
+            confirmButtonText: 'Ir a cerrar caja',
+            confirmButtonColor: '#dc3545',
+            allowOutsideClick: false
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // CAMBIO: Mandamos a cierre_caja para que no rebote
+                window.location.href = 'cierre_caja.php'; 
+            }
         });
+    <?php endif; ?>
+
+    verificarVentaPausada(); 
+    cargarRapidos('');
+    $('#btn-finalizar').on('click', ejecutarVentaFinalEnBD);
+});
 
         document.addEventListener('keydown', function(e) {
             if(e.key === 'F2') { e.preventDefault(); $('#buscar-producto').focus(); }

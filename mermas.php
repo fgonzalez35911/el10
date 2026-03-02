@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
 }
 
 // FILTROS DESDE / HASTA
-$desde = $_GET['desde'] ?? date('Y-m-01');
+$desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-t');
 
 $productos = $conexion->query("SELECT id, descripcion, stock_actual FROM productos WHERE activo=1 ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_OBJ);
@@ -86,67 +86,41 @@ foreach($mermas as $m) { $montoFiltrado += ($m->cantidad * $m->precio_costo); }
     
     <?php include 'includes/layout_header.php'; ?>
 
-    <div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
-        <i class="bi bi-trash3 bg-icon-large" style="z-index: 0;"></i>
-        <div class="container position-relative" style="z-index: 2;">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h2 class="font-cancha mb-0 text-white">Control de Mermas</h2>
-                    <p class="opacity-75 mb-0 text-white small">Gestión de roturas, vencimientos y bajas.</p>
-                </div>
-                <div class="d-flex gap-2">
-                
+    <?php
+// --- DEFINICIÓN DEL BANNER DINÁMICO ---
+$titulo = "Bajas de Inventario";
+$subtitulo = "Administración de pérdidas y ajustes de stock.";
+$icono_bg = "bi-trash3";
 
-                <?php if($es_admin || in_array('reporte_mermas', $permisos)): ?>
-                <a href="reporte_mermas.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> PDF
-                </a>
-                <?php endif; ?>
-            </div>
-            </div>
+$botones = [];
+if($es_admin || in_array('reporte_mermas', $permisos)) {
+    $botones[] = ['texto' => 'PDF', 'link' => "reporte_mermas.php?desde=$desde&hasta=$hasta", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank'];
+}
 
-            <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">
-                <form method="GET" class="d-flex align-items-center gap-3 mb-0">
-                    <div class="d-flex align-items-center">
-                        <span class="small fw-bold text-white text-uppercase me-2">Desde:</span>
-                        <input type="date" name="desde" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $desde; ?>" required style="max-width: 150px;">
-                    </div>
-                    <div class="d-flex align-items-center">
-                        <span class="small fw-bold text-white text-uppercase me-2">Hasta:</span>
-                        <input type="date" name="hasta" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $hasta; ?>" required style="max-width: 150px;">
-                    </div>
-                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow"><i class="bi bi-search me-2"></i> FILTRAR</button>
+$widgets = [
+    ['label' => 'Bajas Filtradas', 'valor' => count($mermas), 'icono' => 'bi-box-seam', 'icon_bg' => 'bg-white bg-opacity-10'],
+    ['label' => 'Pérdida Filtrada', 'valor' => '$'.number_format($montoFiltrado, 0, ',', '.'), 'icono' => 'bi-graph-down-arrow', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20'],
+    ['label' => 'Estado Stock', 'valor' => 'SINCRONIZADO', 'icono' => 'bi-shield-check', 'border' => 'border-info', 'icon_bg' => 'bg-info bg-opacity-20']
+];
+
+include 'includes/componente_banner.php'; 
+?>
+
+    <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
+        
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-body p-3">
+                <form method="GET" class="row g-2 align-items-end">
+                    <div class="col-md-5 col-6"><label class="small fw-bold text-muted text-uppercase mb-1">Desde</label><input type="date" name="desde" class="form-control fw-bold shadow-none" value="<?php echo $desde; ?>" required></div>
+                    <div class="col-md-5 col-6"><label class="small fw-bold text-muted text-uppercase mb-1">Hasta</label><input type="date" name="hasta" class="form-control fw-bold shadow-none" value="<?php echo $hasta; ?>" required></div>
+                    <div class="col-md-2 col-12"><button type="submit" class="btn btn-primary w-100 fw-bold rounded-3 shadow-sm">FILTRAR</button></div>
                 </form>
             </div>
-
-            <div class="row g-3">
-                <div class="col-6 col-md-4">
-                    <div class="header-widget">
-                        <div><div class="widget-label">Bajas Filtradas</div><div class="widget-value text-white"><?php echo count($mermas); ?> <small class="fs-6 opacity-75">items</small></div></div>
-                        <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-box-seam"></i></div>
-                    </div>
-                </div>
-                <div class="col-6 col-md-4">
-                    <div class="header-widget">
-                        <div><div class="widget-label">Pérdida Filtrada</div><div class="widget-value text-white">$<?php echo number_format($montoFiltrado, 0, ',', '.'); ?></div></div>
-                        <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-graph-down-arrow"></i></div>
-                    </div>
-                </div>
-                <div class="col-12 col-md-4">
-                    <div class="header-widget border-info">
-                        <div><div class="widget-label">Estado Stock</div><div class="widget-value text-white" style="font-size: 1.1rem;">SINCRONIZADO</div></div>
-                        <div class="icon-box bg-info bg-opacity-20 text-white"><i class="bi bi-shield-check"></i></div>
-                    </div>
-                </div>
-            </div>
         </div>
-    </div>
-
-    <div class="container pb-5 mt-4">
         <div class="row g-4">
             <div class="col-md-4">
                 <div class="card card-custom border-0 shadow-sm">
-                    <div class="card-header bg-white py-3 border-bottom-0"><h6 class="fw-bold mb-0">Registrar Baja</h6></div>
+                    <div class="card-header bg-white py-3 border-bottom-0"><h6 class="fw-bold mb-0">Informe de Pérdida</h6></div>
                     <div class="card-body bg-light rounded-bottom">
                         <form method="POST">
                             <div class="mb-3">

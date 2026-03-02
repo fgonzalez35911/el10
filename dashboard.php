@@ -1,15 +1,14 @@
 <?php
-// dashboard.php - ANALOGÍAS FUTBOLERAS + WIDGETS CLAROS
+// dashboard.php - VERSIÓN DINÁMICA TOTAL
 require_once 'includes/layout_header.php'; 
 require_once 'includes/db.php';
+$conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 
 $id_user = $_SESSION['usuario_id'];
-// Recuperamos el rol y permisos
 $rol_usuario = $_SESSION['rol'] ?? 3; 
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($rol_usuario <= 2);
 
-// DATOS
 $hoy = date('Y-m-d');
 
 // 1. Suma de Ventas Brutas hoy
@@ -17,12 +16,11 @@ $resVentas = $conexion->prepare("SELECT COALESCE(SUM(total),0) as total, COUNT(*
 $resVentas->execute([$id_user, $hoy]);
 $datosVentas = $resVentas->fetch(PDO::FETCH_ASSOC);
 
-// 2. Suma de Devoluciones hoy (Pérdida de hoy)
+// 2. Suma de Devoluciones hoy
 $resDevs = $conexion->prepare("SELECT COALESCE(SUM(monto_devuelto),0) as total_dev FROM devoluciones WHERE id_usuario = ? AND DATE(fecha) = ?");
 $resDevs->execute([$id_user, $hoy]);
 $totalDevueltoHoy = $resDevs->fetch(PDO::FETCH_ASSOC)['total_dev'];
 
-// 3. Cálculo de la Venta Neta (La verdad del negocio)
 $venta_neta = $datosVentas['total'] - $totalDevueltoHoy;
 
 $estado_caja = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
@@ -32,7 +30,6 @@ $estado_caja = $estado_caja->fetch() ? 'ABIERTA' : 'CERRADA';
 // ALERTAS
 $alertas_stock = 0; $alertas_vencimiento = 0; $alertas_cumple = 0;
 
-// Aquí aplicamos el candado para que solo calcule alertas si tiene permisos o es admin
 if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes', $permisos)) {
     if ($es_admin || in_array('ver_productos', $permisos)) {
         $alertas_stock = $conexion->query("SELECT COUNT(p.id) FROM productos p JOIN categorias c ON p.id_categoria = c.id WHERE p.stock_actual <= p.stock_minimo AND p.activo = 1 AND p.tipo != 'combo'")->fetchColumn();
@@ -57,20 +54,17 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
         <a href="reportes.php?filtro=hoy" class="widget-stat">
             <span class="stat-label">Ventas Hoy</span>
             <div class="stat-value">
-    <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
-        $<?php echo number_format($venta_neta, 0, ',', '.'); ?>
-        
-        <?php if($totalDevueltoHoy > 0): ?>
-            <div style="font-size: 0.65rem; opacity: 0.7; font-weight: normal; line-height: 1;">
-                (Bruto: $<?php echo number_format($datosVentas['total'], 0); ?> - Dev: $<?php echo number_format($totalDevueltoHoy, 0); ?>)
+            <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
+                $<?php echo number_format($venta_neta, 0, ',', '.'); ?>
+                <?php if($totalDevueltoHoy > 0): ?>
+                    <div style="font-size: 0.65rem; opacity: 0.7; font-weight: normal; line-height: 1;">
+                        (Bruto: $<?php echo number_format($datosVentas['total'], 0); ?> - Dev: $<?php echo number_format($totalDevueltoHoy, 0); ?>)
+                    </div>
+                <?php endif; ?>
+            <?php else: ?>
+                *****
+            <?php endif; ?>
             </div>
-        <?php endif; ?>
-        
-    <?php else: ?>
-        *****
-    <?php endif; ?>
-</div>
-
             <i class="bi bi-currency-dollar stat-icon"></i>
         </a>
     </div>
@@ -128,7 +122,7 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
         
         <div class="position-relative z-1">
             <h1 class="font-cancha m-0">IR A PUNTO DE VENTA</h1>
-            <div class="opacity-75">Facturar / Cobrar (El Gol)</div>
+            <div class="opacity-75"><?php echo $conf['label_punto_venta']; ?></div>
             <br><br>
         </div>
 
@@ -138,150 +132,129 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
 </a>
 
 <?php if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_combos', $permisos) || in_array('ver_clientes', $permisos) || in_array('ver_proveedores', $permisos) || in_array('ver_sorteos', $permisos)): ?>
-<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">JUGADAS DIARIAS</h5>
-<div class="row g-3 mb-4 row-cols-2 row-cols-md-3 row-cols-lg-5">
-    <?php if($es_admin || in_array('ver_productos', $permisos)): ?>
+<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_1']; ?></h5>
+<div class="row g-3 mb-4 row-cols-3 row-cols-md-4 row-cols-lg-6">
     <div class="col">
         <a href="productos.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-box-seam"></i></div>
-            <span class="menu-title">Productos</span><span class="menu-sub">EL PLANTEL</span>
+            <span class="menu-title">Productos</span><span class="menu-sub"><?php echo $conf['label_productos']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_combos', $permisos)): ?>
+    <div class="col">
+        <a href="categorias.php" class="card-menu">
+            <div class="icon-box-lg icon-celeste"><i class="bi bi-tags-fill"></i></div>
+            <span class="menu-title">Categorías</span><span class="menu-sub"><?php echo $conf['label_categorias']; ?></span>
+        </a>
+    </div>
     <div class="col">
         <a href="combos.php" class="card-menu">
             <div class="icon-box-lg icon-amarillo"><i class="bi bi-stars"></i></div>
-            <span class="menu-title">Combos</span><span class="menu-sub">JUGADAS PREPARADAS</span>
+            <span class="menu-title">Combos</span><span class="menu-sub"><?php echo $conf['label_combos']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_clientes', $permisos)): ?>
     <div class="col">
         <a href="clientes.php" class="card-menu">
             <div class="icon-box-lg icon-celeste"><i class="bi bi-people-fill"></i></div>
-            <span class="menu-title">Clientes</span><span class="menu-sub">LA HINCHADA</span>
+            <span class="menu-title">Clientes</span><span class="menu-sub"><?php echo $conf['label_clientes']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_proveedores', $permisos)): ?>
     <div class="col">
         <a href="proveedores.php" class="card-menu">
             <div class="icon-box-lg icon-verde"><i class="bi bi-truck"></i></div>
-            <span class="menu-title">Proveedores</span><span class="menu-sub">REFUERZOS</span>
+            <span class="menu-title">Proveedores</span><span class="menu-sub"><?php echo $conf['label_proveedores']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_sorteos', $permisos)): ?>
     <div class="col">
         <a href="sorteos.php" class="card-menu">
             <div class="icon-box-lg icon-violeta"><i class="bi bi-ticket-perforated-fill"></i></div>
-            <span class="menu-title">Sorteos</span><span class="menu-sub">RIFAS</span>
+            <span class="menu-title">Sorteos</span><span class="menu-sub"><?php echo $conf['label_sorteos']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
 </div>
 <?php endif; ?>
 
-
 <?php if($es_admin || in_array('ver_historial_cajas', $permisos) || in_array('ver_gastos', $permisos) || in_array('ver_inflacion', $permisos) || in_array('ver_cupones', $permisos) || in_array('revista_builder', $permisos)): ?>
-<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">FINANZAS Y MARKETING</h5>
-<div class="row g-3 mb-4 row-cols-2 row-cols-md-3 row-cols-lg-5">
-    <?php if($es_admin || in_array('ver_historial_cajas', $permisos)): ?>
+<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_2']; ?></h5>
+<div class="row g-3 mb-4 row-cols-3 row-cols-md-4 row-cols-lg-6">
     <div class="col">
         <a href="ver_recaudacion.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-safe-fill"></i></div>
-            <span class="menu-title">Recaudación Real</span><span class="menu-sub">DETALLE CAJA</span>
+            <span class="menu-title">Recaudación</span><span class="menu-sub"><?php echo $conf['label_recaudacion']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_gastos', $permisos)): ?>
     <div class="col">
         <a href="gastos.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-cash-stack"></i></div>
-            <span class="menu-title">Gastos</span><span class="menu-sub">TARJETAS AMARILLAS</span>
+            <span class="menu-title">Gastos</span><span class="menu-sub"><?php echo $conf['label_gastos']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_inflacion', $permisos)): ?>
+    <div class="col">
+        <a href="mermas.php" class="card-menu">
+            <div class="icon-box-lg icon-rojo"><i class="bi bi-trash3-fill"></i></div>
+            <span class="menu-title">Mermas</span><span class="menu-sub"><?php echo $conf['label_mermas']; ?></span>
+        </a>
+    </div>
     <div class="col">
         <a href="precios_masivos.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-graph-up-arrow"></i></div>
-            <span class="menu-title">Aumentos</span><span class="menu-sub">MERCADO DE PASES</span>
+            <span class="menu-title">Aumentos</span><span class="menu-sub"><?php echo $conf['label_aumentos']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_cupones', $permisos)): ?>
     <div class="col">
         <a href="gestionar_cupones.php" class="card-menu">
             <div class="icon-box-lg icon-verde"><i class="bi bi-ticket-perforated"></i></div>
-            <span class="menu-title">Cupones</span><span class="menu-sub">BENEFICIOS SOCIOS</span>
+            <span class="menu-title">Cupones</span><span class="menu-sub"><?php echo $conf['label_cupones']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('revista_builder', $permisos)): ?>
     <div class="col">
         <a href="revista_builder.php" class="card-menu">
             <div class="icon-box-lg icon-violeta"><i class="bi bi-magic"></i></div>
-            <span class="menu-title">Revista Builder</span><span class="menu-sub">PIZARRA TÁCTICA</span>
+            <span class="menu-title">Revista</span><span class="menu-sub"><?php echo $conf['label_revista']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
 </div>
 <?php endif; ?>
 
 <?php if($es_admin || in_array('ver_reportes', $permisos) || in_array('ver_configuracion', $permisos) || in_array('ver_usuarios', $permisos) || in_array('ver_auditoria', $permisos)): ?>
-<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary">ADMINISTRACIÓN</h5>
-<div class="row g-3 mb-5 row-cols-2 row-cols-md-3 row-cols-lg-5">
-    <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
+<h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_3']; ?></h5>
+<div class="row g-3 mb-5 row-cols-3 row-cols-md-4 row-cols-lg-6">
     <div class="col">
         <a href="reportes.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-bar-chart-fill"></i></div>
-            <span class="menu-title">Reportes</span><span class="menu-sub">RESULTADOS</span>
+            <span class="menu-title">Reportes</span><span class="menu-sub"><?php echo $conf['label_reportes']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_configuracion', $permisos)): ?>
     <div class="col">
         <a href="configuracion.php" class="card-menu">
             <div class="icon-box-lg icon-amarillo"><i class="bi bi-sliders"></i></div>
-            <span class="menu-title">Configuración</span><span class="menu-sub">REGLAMENTO</span>
+            <span class="menu-title">Configurar</span><span class="menu-sub"><?php echo $conf['label_config']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_usuarios', $permisos)): ?>
     <div class="col">
         <a href="usuarios.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-shield-lock"></i></div>
-            <span class="menu-title">Usuarios</span><span class="menu-sub">CUERPO TÉCNICO</span>
+            <span class="menu-title">Usuarios</span><span class="menu-sub"><?php echo $conf['label_usuarios']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-
-    <?php if($es_admin || in_array('ver_auditoria', $permisos)): ?>
     <div class="col">
         <a href="auditoria.php" class="card-menu">
             <div class="icon-box-lg icon-rojo"><i class="bi bi-eye"></i></div>
-            <span class="menu-title">Auditoría</span><span class="menu-sub">EL VAR</span>
+            <span class="menu-title">Auditoría</span><span class="menu-sub"><?php echo $conf['label_auditoria']; ?></span>
         </a>
     </div>
-    <?php endif; ?>
-    <div class="col">
+     <div class="col">
         <a href="importador_maestro.php" class="card-menu">
             <div class="icon-box-lg icon-verde"><i class="bi bi-file-earmark-spreadsheet-fill"></i></div>
-            <span class="menu-title">Importador</span><span class="menu-sub">CARGA MASIVA</span>
+            <span class="menu-title">Importador</span><span class="menu-sub"><?php echo $conf['label_importador']; ?></span>
         </a>
     </div>
+    <div class="col">
+        <a href="generar_backup.php" class="card-menu">
+            <div class="icon-box-lg icon-verde"><i class="bi bi-database-down"></i></div>
+            <span class="menu-title">Backup</span><span class="menu-sub"><?php echo $conf['label_respaldo']; ?></span>
+        </a>
+    </div>
+   
 </div>
 <?php endif; ?>
 
