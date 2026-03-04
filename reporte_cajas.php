@@ -40,13 +40,26 @@ try {
 
     $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
     $hasta = $_GET['hasta'] ?? date('Y-m-d');
-    $f_estado = $_GET['estado'] ?? '';
+    $f_cliente = $_GET['id_cliente'] ?? '';
     $f_usuario = $_GET['id_usuario'] ?? '';
+    $buscar = $_GET['buscar'] ?? '';
 
     $condiciones = ["DATE(c.fecha_apertura) >= ?", "DATE(c.fecha_apertura) <= ?"];
     $parametros = [$desde, $hasta];
 
-    if ($f_estado !== '') { $condiciones[] = "c.estado = ?"; $parametros[] = $f_estado; }
+    if (!empty($buscar)) {
+        if (is_numeric($buscar)) {
+            $condiciones[] = "c.id = ?";
+            $parametros[] = intval($buscar);
+        } else {
+            $condiciones[] = "u.usuario LIKE ?";
+            $parametros[] = "%$buscar%";
+        }
+    }
+    if ($f_cliente !== '') { 
+        $condiciones[] = "EXISTS (SELECT 1 FROM ventas v WHERE v.id_caja_sesion = c.id AND v.id_cliente = ?)"; 
+        $parametros[] = $f_cliente; 
+    }
     if ($f_usuario !== '') { $condiciones[] = "c.id_usuario = ?"; $parametros[] = $f_usuario; }
 
     $sql = "SELECT c.*, u.usuario FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE " . implode(" AND ", $condiciones) . " ORDER BY c.id DESC";
@@ -77,7 +90,6 @@ try {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reporte_Cajas</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -116,11 +128,9 @@ try {
             border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
 
-        @media (max-width: 768px) {
-            body { padding: 10px; }
-            header { flex-direction: column; text-align: center; gap: 10px; }
-            .no-print { left: 10px; right: 10px; bottom: 10px; }
-            .btn-descargar { width: 100%; }
+        @media (max-device-width: 768px) {
+            .no-print { left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; width: 90%; display: flex; justify-content: center; }
+            .btn-descargar { width: 100%; padding: 45px 20px; font-size: 45px; border-radius: 100px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
         }
     </style>
 </head>

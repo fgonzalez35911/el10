@@ -113,7 +113,7 @@ try {
     // QR DE VALIDACIÓN EN EL ADJUNTO
     $pdf->Ln(4);
     $protocolo = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
-    $linkPdfPublico = $protocolo . "://" . $_SERVER['HTTP_HOST'] . "/ticket_devolucion_pdf.php?id=" . $id_venta;
+    $linkPdfPublico = "http://" . str_replace("acciones/", "", $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . "/ticket_devolucion_pdf.php?id=" . $id_venta;
     $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
     $y_qr = $pdf->GetY();
     $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');

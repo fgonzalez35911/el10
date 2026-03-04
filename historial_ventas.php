@@ -26,16 +26,30 @@ try {
 $stmtUsu = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC");
 $usuarios_lista = $stmtUsu->fetchAll(PDO::FETCH_ASSOC);
 
+// OBTENER CLIENTES PARA EL FILTRO
+$stmtCli = $conexion->query("SELECT id, nombre FROM clientes ORDER BY nombre ASC");
+$clientes_lista = $stmtCli->fetchAll(PDO::FETCH_ASSOC);
+
 // FILTROS
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
-$f_estado = $_GET['estado'] ?? '';
+$buscar = $_GET['buscar'] ?? '';
+$f_cliente = $_GET['id_cliente'] ?? '';
 $f_usuario = $_GET['id_usuario'] ?? '';
 
 $condiciones = ["DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?"];
 $parametros = [$desde, $hasta];
 
-if ($f_estado !== '') { $condiciones[] = "v.estado = ?"; $parametros[] = $f_estado; }
+if (!empty($buscar)) {
+    if (is_numeric($buscar)) {
+        $condiciones[] = "v.id = ?";
+        $parametros[] = intval($buscar);
+    } else {
+        $condiciones[] = "c.nombre LIKE ?";
+        $parametros[] = "%$buscar%";
+    }
+}
+if ($f_cliente !== '') { $condiciones[] = "v.id_cliente = ?"; $parametros[] = $f_cliente; }
 if ($f_usuario !== '') { $condiciones[] = "v.id_usuario = ?"; $parametros[] = $f_usuario; }
 
 $where_sql = " WHERE " . implode(" AND ", $condiciones);
@@ -66,7 +80,7 @@ $subtitulo = "Consulta y gestión de transacciones realizadas.";
 $icono_bg = "bi-clock-history";
 
 $botones = [
-    ['texto' => 'PDF', 'link' => "reporte_ventas.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger btn-sm fw-bold rounded-pill px-3 shadow-sm', 'target' => '_blank']
+    ['texto' => 'Reporte PDF', 'link' => "reporte_ventas.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
@@ -79,6 +93,29 @@ include 'includes/componente_banner.php';
 ?>
 
 <div class="container mt-n4 pb-5" style="position: relative; z-index: 20;">
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="row g-2 align-items-center mb-0">
+                <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                <?php if($f_cliente) echo '<input type="hidden" name="id_cliente" value="'.htmlspecialchars($f_cliente).'">'; ?>
+                <?php if($f_usuario) echo '<input type="hidden" name="id_usuario" value="'.htmlspecialchars($f_usuario).'">'; ?>
+                
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador de Tickets</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Ingrese el número de ticket o nombre del cliente para localizar la venta.</p>
+                </div>
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="N° Ticket o Cliente..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-2 p-md-3">
             <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
@@ -90,15 +127,16 @@ include 'includes/componente_banner.php';
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Hasta</label>
                     <input type="date" name="hasta" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta; ?>">
                 </div>
-                <div class="flex-grow-1" style="min-width: 120px;">
-                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Estado</label>
-                    <select name="estado" class="form-select form-select-sm border-light-subtle fw-bold">
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Cliente</label>
+                    <select name="id_cliente" class="form-select form-select-sm border-light-subtle fw-bold">
                         <option value="">Todos</option>
-                        <option value="completada" <?php echo ($f_estado === 'completada') ? 'selected' : ''; ?>>Completada</option>
-                        <option value="anulada" <?php echo ($f_estado === 'anulada') ? 'selected' : ''; ?>>Anulada</option>
+                        <?php foreach($clientes_lista as $cli): ?>
+                            <option value="<?php echo $cli['id']; ?>" <?php echo ($f_cliente == $cli['id']) ? 'selected' : ''; ?>><?php echo strtoupper($cli['nombre']); ?></option>
+                        <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="flex-grow-1" style="min-width: 120px;">
+                <div class="flex-grow-1" style="min-width: 140px;">
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Vendedor</label>
                     <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
                         <option value="">Todos</option>
@@ -119,18 +157,35 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
+    <style>
+        @media (max-width: 768px) {
+            .tabla-movil-ajustada td, .tabla-movil-ajustada th {
+                padding: 0.4rem 0.2rem !important;
+                font-size: 0.75rem !important;
+                white-space: nowrap;
+            }
+            .tabla-movil-ajustada .badge { font-size: 0.65rem !important; }
+            .tabla-movil-ajustada .small { font-size: 0.65rem !important; }
+            .tabla-movil-ajustada .fw-bold { font-size: 0.75rem !important; }
+        }
+    </style>
+
+    <div class="alert py-2 small mb-3 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+        <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un ticket para ver los detalles
+    </div>
+
     <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
+            <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
                 <thead class="bg-light text-muted small uppercase">
                     <tr>
                         <th class="ps-4">TICKET</th>
                         <th>Fecha/Hora</th>
                         <th>Cliente</th>
-                        <th>Vendedor</th>
-                        <th>Método</th>
+                        <th class="d-none d-md-table-cell">Vendedor</th>
+                        <th class="d-none d-md-table-cell">Método</th>
                         <th class="text-end">Total</th>
-                        <th class="text-end pe-4">Acciones</th>
+                        <th class="text-end pe-4 d-none d-md-table-cell">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -145,10 +200,10 @@ include 'includes/componente_banner.php';
                             <small class="text-muted"><?php echo date('H:i', strtotime($v->fecha)); ?> hs</small>
                         </td>
                         <td><div class="fw-bold"><?php echo htmlspecialchars($v->cliente ?? 'CONSUMIDOR FINAL'); ?></div></td>
-                        <td><div class="small fw-bold text-uppercase text-muted"><?php echo htmlspecialchars($v->usuario ?? 'N/A'); ?></div></td>
-                        <td><span class="badge bg-light text-dark border fw-bold"><?php echo strtoupper($v->metodo_pago); ?></span></td>
+                        <td class="d-none d-md-table-cell"><div class="small fw-bold text-uppercase text-muted"><?php echo htmlspecialchars($v->usuario ?? 'N/A'); ?></div></td>
+                        <td class="d-none d-md-table-cell"><span class="badge bg-light text-dark border fw-bold"><?php echo strtoupper($v->metodo_pago); ?></span></td>
                         <td class="text-end fw-bold text-primary">$<?php echo number_format($v->total, 2, ',', '.'); ?></td>
-                        <td class="text-end pe-4"><button class="btn btn-sm btn-outline-primary rounded-pill px-3">VER TICKET</button></td>
+                        <td class="text-end pe-4 d-none d-md-table-cell"><button class="btn btn-sm btn-outline-primary rounded-pill px-3">VER TICKET</button></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -177,8 +232,14 @@ function verTicketDetalle(id) {
                 customClass: { confirmButton: 'btn btn-primary rounded-pill px-4' }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    const win = window.open('ticket.php?id=' + id, '_blank');
-                    win.focus();
+                    let iframe = document.getElementById('iframe-impresion');
+                    if (!iframe) {
+                        iframe = document.createElement('iframe');
+                        iframe.id = 'iframe-impresion';
+                        iframe.style.display = 'none';
+                        document.body.appendChild(iframe);
+                    }
+                    iframe.src = 'ticket.php?id=' + id;
                 }
             });
         });

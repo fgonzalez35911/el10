@@ -118,11 +118,9 @@ try {
             border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
 
-        @media (max-width: 768px) {
-            body { padding: 10px; }
-            header { flex-direction: column; text-align: center; gap: 10px; }
-            .no-print { left: 10px; right: 10px; bottom: 10px; }
-            .btn-descargar { width: 100%; }
+        @media (max-device-width: 768px) {
+            .no-print { left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; width: 90%; display: flex; justify-content: center; }
+            .btn-descargar { width: 100%; padding: 45px 20px; font-size: 45px; border-radius: 100px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
         }
         @media screen { .report-page { margin-bottom: 30px; } }
     </style>

@@ -106,7 +106,10 @@ $paramsV = [$desde, $hasta];
 if(!empty($buscar)) { if(is_numeric($buscar)) { $condV[] = "v.id = ?"; $paramsV[] = intval($buscar); } else { $condV[] = "c.nombre LIKE ?"; $paramsV[] = "%$buscar%"; } }
 if($f_cliente !== '') { $condV[] = "v.id_cliente = ?"; $paramsV[] = $f_cliente; }
 
-$sqlV = "SELECT v.id, v.total, v.fecha, c.nombre FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condV) . " ORDER BY v.fecha DESC LIMIT 15";
+$sqlV = "SELECT v.id, v.total, v.fecha, c.nombre, 
+            (SELECT COUNT(*) FROM devoluciones d WHERE d.id_venta_original = v.id) as tiene_dev 
+         FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id 
+         WHERE " . implode(" AND ", $condV) . " ORDER BY v.fecha DESC LIMIT 15";
 $stmtV = $conexion->prepare($sqlV); $stmtV->execute($paramsV); $ventas_lista = $stmtV->fetchAll(PDO::FETCH_ASSOC);
 
 $condH = ["DATE(d.fecha) >= ?", "DATE(d.fecha) <= ?"];
@@ -134,7 +137,7 @@ $icono_bg = "bi-arrow-counterclockwise";
 
 $query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [
-    ['texto' => 'PDF', 'link' => "reporte_devoluciones.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger btn-sm rounded-pill px-3 shadow-sm', 'target' => '_blank']
+    ['texto' => 'Reporte PDF', 'link' => "reporte_devoluciones.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
@@ -157,6 +160,29 @@ include 'includes/componente_banner.php';
 </style>
 
 <div class="container mt-n4 pb-5" style="position: relative; z-index: 20;">
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="row g-2 align-items-center mb-0">
+                <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                <?php if($f_cliente) echo '<input type="hidden" name="id_cliente" value="'.htmlspecialchars($f_cliente).'">'; ?>
+                <?php if($f_usuario) echo '<input type="hidden" name="id_usuario" value="'.htmlspecialchars($f_usuario).'">'; ?>
+                
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador de Tickets</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Ingrese el número de ticket o nombre del cliente para localizar la venta.</p>
+                </div>
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="N° Ticket o Cliente..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-2 p-md-3">
             <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
@@ -198,25 +224,6 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm rounded-4 mb-4 bg-primary bg-gradient text-white overflow-hidden" style="border-left: 5px solid #102A57 !important;">
-        <div class="card-body p-3">
-            <form method="GET" class="row g-2 align-items-center">
-                <input type="hidden" name="desde" value="<?php echo $desde; ?>">
-                <input type="hidden" name="hasta" value="<?php echo $hasta; ?>">
-                <div class="col-md-9 col-12">
-                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Crítico de Tickets</h6>
-                    <p class="small mb-0 opacity-75">Ingrese el número de ticket o nombre del cliente para localizar la venta y proceder al reintegro.</p>
-                </div>
-                <div class="col-md-3 col-12 text-end">
-                    <div class="input-group input-group-lg">
-                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Ticket #..." value="<?php echo htmlspecialchars($buscar); ?>">
-                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <div class="row g-4">
         <div class="col-md-4">
             <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
@@ -225,7 +232,13 @@ include 'includes/componente_banner.php';
                     <?php foreach($ventas_lista as $v): ?>
                         <button onclick="verTicket(<?php echo $v['id']; ?>, 'operacion')" class="list-group-item list-group-item-action py-3">
                             <div class="d-flex justify-content-between align-items-center">
-                                <div><span class="fw-bold">#<?php echo $v['id']; ?></span><small class="d-block text-muted"><?php echo substr($v['nombre'] ?? 'C. Final', 0, 18); ?></small></div>
+                                <div>
+                                    <span class="fw-bold">#<?php echo $v['id']; ?></span>
+                                    <?php if($v['tiene_dev'] > 0): ?>
+                                        <span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;">PARCIAL/DEVUELTO</span>
+                                    <?php endif; ?>
+                                    <small class="d-block text-muted"><?php echo substr($v['nombre'] ?? 'C. Final', 0, 18); ?></small>
+                                </div>
                                 <div class="fw-bold text-primary">$<?php echo number_format($v['total'], 0); ?></div>
                             </div>
                         </button>
@@ -336,9 +349,12 @@ function verTicket(id, modo) {
             let itemsH = '';
             data.detalles.forEach(d => {
                 const dev = data.info_historial.find(h => h.id_producto == d.id_producto);
-                itemsH += `<div class="${dev ? 'ticket-tachado' : ''} mb-3">
-                    <div style="display:flex; justify-content:space-between;"><span>${parseFloat(d.cantidad)}x ${d.descripcion.substring(0, 25)}</span><b>$${parseFloat(d.subtotal).toFixed(0)}</b></div>
-                    ${(!dev && modo === 'operacion') ? `<button class="btn btn-danger btn-sm w-100 fw-bold rounded-pill mt-2 py-2" onclick="confirmar(${v.id}, ${d.id_producto}, ${d.cantidad}, ${d.subtotal}, '${d.descripcion.replace(/'/g, "\\'")}')">DEVOLVER</button>` : ''}
+                itemsH += `<div class="${dev ? 'ticket-tachado' : ''} mb-3 p-2 rounded" style="background-color: #f8f9fa; border: 1px solid #eee;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size: 12px; font-weight: 600;">${parseFloat(d.cantidad)}x ${d.descripcion.substring(0, 22)}</span>
+                        <b style="font-size: 13px;">$${parseFloat(d.subtotal).toFixed(0)}</b>
+                    </div>
+                    ${(!dev && modo === 'operacion') ? `<div class="text-end mt-2"><button class="btn btn-outline-danger btn-sm fw-bold rounded-pill px-3 py-1 shadow-sm" style="font-size: 11px;" onclick="confirmar(${v.id}, ${d.id_producto}, ${d.cantidad}, ${d.subtotal}, '${d.descripcion.replace(/'/g, "\\'")}')"><i class="bi bi-arrow-return-left"></i> DEVOLVER</button></div>` : (dev && modo === 'operacion' ? `<div class="text-end mt-2"><span class="badge bg-secondary" style="font-size: 9px;">YA DEVUELTO</span></div>` : '')}
                 </div>`;
             });
             const html = `<div class="ticket-real"><div class="centrado">${conf.logo_url ? `<img src="${conf.logo_url}" style="max-width:80px; filter:grayscale(100%); mb-1">` : ''}<h3>${conf.nombre_negocio}</h3><div class="linea"></div><p class="negrita">TICKET ORIGINAL #000${v.id}</p><p>${v.fecha}</p></div><div class="linea"></div><div>Cliente: ${v.cliente || 'C. Final'}</div><div class="linea"></div>${itemsH}<div class="linea"></div><div style="text-align:right;" class="negrita">TOTAL VENTA: $${parseFloat(v.total).toFixed(0)}</div></div>`;

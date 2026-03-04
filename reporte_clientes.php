@@ -39,6 +39,12 @@ try {
     // --- LÓGICA DE FILTROS (Igual a clientes.php) ---
     $cond = [];
     $titulo_reporte = "LISTADO GENERAL DE CLIENTES";
+    $buscar = $_GET['buscar'] ?? '';
+
+    if (!empty($buscar)) {
+        $cond[] = "(c.nombre LIKE '%$buscar%' OR c.dni LIKE '%$buscar%')";
+        $titulo_reporte = "RESULTADOS DE BÚSQUEDA";
+    }
 
     if (isset($_GET['filtro']) && $_GET['filtro'] == 'cumple') {
         $cond[] = "MONTH(c.fecha_nacimiento) = MONTH(CURDATE()) AND DAY(c.fecha_nacimiento) = DAY(CURDATE())";
@@ -82,6 +88,14 @@ try {
         .firma-linea { border-top: 1.5px solid #000; padding-top: 5px; font-weight: bold; font-size: 9pt; }
         .btn-descargar { background: #dc3545; color: white; padding: 15px 30px; border-radius: 50px; text-decoration: none; font-weight: bold; border: none; cursor: pointer; position: fixed; bottom: 20px; right: 20px; }
         @media print { .btn-descargar { display: none; } }
+        @media (max-device-width: 768px) {
+            .btn-descargar { 
+                left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; 
+                width: 90%; display: flex; justify-content: center;
+                padding: 45px 20px; font-size: 45px; border-radius: 100px; 
+                box-shadow: 0 15px 35px rgba(0,0,0,0.4); 
+            }
+        }
     </style>
 </head>
 <body>

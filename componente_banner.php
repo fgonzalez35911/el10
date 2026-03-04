@@ -41,7 +41,7 @@
                     <a href="<?php echo $btn['link']; ?>" 
                        target="<?php echo $btn['target'] ?? '_self'; ?>" 
                        class="<?php echo $btn['class']; ?>" 
-                       style="font-size: 0.65rem; padding: 3px 10px; letter-spacing: 0.5px; min-width: 80px;">
+                       style="font-size: 0.75rem; padding: 3px 10px; letter-spacing: 0.5px; min-width: 80px;">
                         
                         <?php if(!empty($btn['icono'])): ?>
                             <i class="bi <?php echo $btn['icono']; ?> me-1" style="font-size: 0.75rem;"></i>
