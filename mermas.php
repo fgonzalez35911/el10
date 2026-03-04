@@ -57,14 +57,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
     }
 }
 
-// FILTROS DESDE / HASTA
+// FILTROS AVANZADOS
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
-$hasta = $_GET['hasta'] ?? date('Y-m-t');
+$hasta = $_GET['hasta'] ?? date('Y-m-d');
+$f_usu = $_GET['id_usuario'] ?? '';
+
+$cond = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
+$params = [$desde, $hasta];
+if($f_usu !== '') { $cond[] = "m.id_usuario = ?"; $params[] = $f_usu; }
 
 $productos = $conexion->query("SELECT id, descripcion, stock_actual FROM productos WHERE activo=1 ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_OBJ);
 
-$stmtM = $conexion->prepare("SELECT m.*, p.descripcion, p.precio_costo, u.usuario, u.nombre_completo FROM mermas m JOIN productos p ON m.id_producto = p.id JOIN usuarios u ON m.id_usuario = u.id WHERE DATE(m.fecha) >= ? AND DATE(m.fecha) <= ? ORDER BY m.fecha DESC");
-$stmtM->execute([$desde, $hasta]);
+$stmtM = $conexion->prepare("SELECT m.*, p.descripcion, p.precio_costo, u.usuario, u.nombre_completo, r.nombre as nombre_rol, u.id as id_op 
+                             FROM mermas m 
+                             JOIN productos p ON m.id_producto = p.id 
+                             JOIN usuarios u ON m.id_usuario = u.id 
+                             JOIN roles r ON u.id_rol = r.id
+                             WHERE " . implode(" AND ", $cond) . " 
+                             ORDER BY m.fecha DESC");
+$stmtM->execute($params);
 $mermas = $stmtM->fetchAll(PDO::FETCH_OBJ);
 
 $kpiHoy = $conexion->query("SELECT COUNT(*) as cant, COALESCE(SUM(m.cantidad * p.precio_costo), 0) as costo_total FROM mermas m JOIN productos p ON m.id_producto = p.id WHERE DATE(m.fecha) = CURDATE()")->fetch(PDO::FETCH_ASSOC);
@@ -92,9 +103,10 @@ $titulo = "Bajas de Inventario";
 $subtitulo = "Administración de pérdidas y ajustes de stock.";
 $icono_bg = "bi-trash3";
 
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [];
 if($es_admin || in_array('reporte_mermas', $permisos)) {
-    $botones[] = ['texto' => 'PDF', 'link' => "reporte_mermas.php?desde=$desde&hasta=$hasta", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank'];
+    $botones[] = ['texto' => 'PDF', 'link' => "reporte_mermas.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank'];
 }
 
 $widgets = [
@@ -110,11 +122,35 @@ include 'includes/componente_banner.php';
         
         <div class="card border-0 shadow-sm rounded-4 mb-4">
             <div class="card-body p-3">
-                <form method="GET" class="row g-2 align-items-end">
-                    <div class="col-md-5 col-6"><label class="small fw-bold text-muted text-uppercase mb-1">Desde</label><input type="date" name="desde" class="form-control fw-bold shadow-none" value="<?php echo $desde; ?>" required></div>
-                    <div class="col-md-5 col-6"><label class="small fw-bold text-muted text-uppercase mb-1">Hasta</label><input type="date" name="hasta" class="form-control fw-bold shadow-none" value="<?php echo $hasta; ?>" required></div>
-                    <div class="col-md-2 col-12"><button type="submit" class="btn btn-primary w-100 fw-bold rounded-3 shadow-sm">FILTRAR</button></div>
-                </form>
+                <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
+                    <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Hasta</label>
+                    <input type="date" name="hasta" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Operador</label>
+                    <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
+                        <option value="">Todos</option>
+                        <?php 
+                        $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
+                        foreach($usuarios_lista as $usu): ?>
+                            <option value="<?php echo $usu['id']; ?>" <?php echo ($f_usu == $usu['id']) ? 'selected' : ''; ?>><?php echo strtoupper($usu['usuario']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                        <i class="bi bi-funnel-fill me-1"></i> FILTRAR
+                    </button>
+                    <a href="mermas.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
+                    </a>
+                </div>
+            </form>
             </div>
         </div>
         <div class="row g-4">
@@ -221,10 +257,9 @@ include 'includes/componente_banner.php';
             let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
             
             let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}?v=${Date.now()}" style="max-height: 50px; margin-bottom: 10px;">` : '';
-            let nombreFirma = merma.nombre_completo ? merma.nombre_completo.toUpperCase() : 'FIRMA AUTORIZADA';
-            
-            // EL DESTRUCTOR DE CACHÉ ESTÁ AQUÍ (?v=Date.now())
-            let firmaHtml = miFirma ? `<img src="${miFirma}?v=${Date.now()}" style="max-height: 50px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${nombreFirma}</small>` : '';
+            let aclaracionOp = merma.nombre_completo ? (merma.nombre_completo + " | " + merma.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
+            let rutaFirmaOp = merma.id_op ? `img/firmas/usuario_${merma.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
+            let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
 
             let ticketHTML = `
                 <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
@@ -241,14 +276,14 @@ include 'includes/componente_banner.php';
                         <div style="margin-bottom: 4px;"><strong>FECHA:</strong> ${fechaF}</div>
                         <div style="margin-bottom: 4px;"><strong>PRODUCTO:</strong> ${merma.descripcion}</div>
                         <div style="margin-bottom: 4px;"><strong>CANTIDAD:</strong> ${parseFloat(merma.cantidad)} unidades</div>
-                        <div><strong>OPERADOR:</strong> ${(merma.usuario || 'ADMIN').toUpperCase()}</div>
+                        <div><strong>OPERADOR:</strong> ${aclaracionOp}</div>
                     </div>
                     <div style="margin-bottom: 15px; font-size: 13px;">
                         <strong style="border-bottom: 1px solid #ccc; display:block; margin-bottom:5px;">MOTIVO:</strong>
                         ${merma.motivo}
                     </div>
                     <div style="background: #dc354510; border-left: 4px solid #dc3545; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-                        <span style="font-size: 1.1em; font-weight:800;">PÉRDIDA COSTO:</span>
+                        <span style="font-size: 1.1em; font-weight:800;">TOTAL:</span>
                         <span style="font-size: 1.15em; font-weight:900; color: #dc3545;">-${perdidaF}</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">

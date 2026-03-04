@@ -142,10 +142,13 @@ include 'includes/componente_banner.php';
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="flex-grow-0 mt-2 mt-md-0">
-                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm w-100 px-3" style="height: 31px;">
+                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
                         <i class="bi bi-funnel-fill"></i> FILTRAR
                     </button>
+                    <a href="historial_cajas.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill"></i> LIMPIAR
+                    </a>
                 </div>
             </form>
         </div>

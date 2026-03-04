@@ -1,45 +1,79 @@
 <?php
 // reporte_devoluciones.php - REPORTE PDF CORPORATIVO
 session_start();
-
-if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
-
+$es_publico = isset($_GET['publico']) && $_GET['publico'] == '1';
+if (!isset($_SESSION['usuario_id']) && !$es_publico) { header("Location: index.php"); exit; }
 require_once 'includes/db.php';
 
 try {
     $conf = $conexion->query("SELECT * FROM configuracion LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-    $id_usuario = $_SESSION['usuario_id'];
-    $u = $conexion->prepare("SELECT usuario, id_rol, nombre_completo FROM usuarios WHERE id = ?");
-    $u->execute([$id_usuario]);
-    $userRow = $u->fetch(PDO::FETCH_ASSOC);
-    
-    $firmaUsuario = ""; 
-    if ($userRow['id_rol'] <= 2) { 
-        if(file_exists("img/firmas/firma_admin.png")) $firmaUsuario = "img/firmas/firma_admin.png"; 
-    } else { 
-        if(file_exists("img/firmas/usuario_{$id_usuario}.png")) $firmaUsuario = "img/firmas/usuario_{$id_usuario}.png"; 
-    }
+    $negocio = [
+        'nombre' => $conf['nombre_negocio'] ?? 'EMPRESA',
+        'direccion' => $conf['direccion_local'] ?? '',
+        'logo' => $conf['logo_url'] ?? '',
+        'cuit' => $conf['cuit'] ?? 'S/D'
+    ];
+    // 1. Datos de quien genera el reporte (Operador para el pie de página jsPDF)
+    $id_operador = $_SESSION['usuario_id'] ?? ($_GET['gen_by'] ?? 1);
+    $u_op = $conexion->prepare("SELECT usuario FROM usuarios WHERE id = ?");
+    $u_op->execute([$id_operador]);
+    $operadorRow = $u_op->fetch(PDO::FETCH_ASSOC);
 
-    $desde = $_GET['desde'] ?? date('Y-m-01');
-    $hasta = $_GET['hasta'] ?? date('Y-m-t');
+    // 2. Datos del Dueño para la Firma (Buscamos al usuario con rol 'dueño')
+    $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
+                                 FROM usuarios u 
+                                 JOIN roles r ON u.id_rol = r.id 
+                                 WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
+    $ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
+
+    // Respaldo por si no existe el rol 'dueño' en la tabla
+    $firmante = $ownerRow ? $ownerRow : ['nombre_completo' => 'RESPONSABLE', 'nombre_rol' => 'AUTORIZADO', 'id' => 0];
+
+    // 3. Buscar la firma física del Dueño (usuario_ID.png)
+    $firmaUsuario = ""; 
+    if($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
+        $firmaUsuario = "img/firmas/usuario_{$ownerRow['id']}.png";
+    } elseif(file_exists("img/firmas/firma_admin.png")) {
+        $firmaUsuario = "img/firmas/firma_admin.png";
+    }
+    $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
+    $hasta = $_GET['hasta'] ?? date('Y-m-d');
+    $buscar = $_GET['buscar'] ?? '';
+    $f_cliente = $_GET['id_cliente'] ?? '';
+    $f_usuario = $_GET['id_usuario'] ?? '';
+
+    $condiciones = ["DATE(d.fecha) >= ?", "DATE(d.fecha) <= ?"];
+    $parametros = [$desde, $hasta];
+
+    if(!empty($buscar)) { 
+        if(is_numeric($buscar)) { $condiciones[] = "v.id = ?"; $parametros[] = intval($buscar); } 
+        else { $condiciones[] = "c.nombre LIKE ?"; $parametros[] = "%$buscar%"; } 
+    }
+    if ($f_cliente !== '') { $condiciones[] = "v.id_cliente = ?"; $parametros[] = $f_cliente; }
+    if ($f_usuario !== '') { $condiciones[] = "d.id_usuario = ?"; $parametros[] = $f_usuario; }
 
     $sql = "SELECT d.*, p.descripcion, u.usuario 
             FROM devoluciones d 
             JOIN productos p ON d.id_producto = p.id 
             JOIN usuarios u ON d.id_usuario = u.id 
-            WHERE DATE(d.fecha) >= ? AND DATE(d.fecha) <= ? 
-            ORDER BY d.fecha DESC";
+            JOIN ventas v ON d.id_venta_original = v.id
+            LEFT JOIN clientes c ON v.id_cliente = c.id
+            WHERE " . implode(" AND ", $condiciones) . " ORDER BY d.fecha DESC";
     $stmt = $conexion->prepare($sql);
-    $stmt->execute([$desde, $hasta]);
+    $stmt->execute($parametros);
     $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if ($desde == $hasta) {
-        $rango_texto = date('d/m/Y', strtotime($desde));
-    } else {
-        $rango_texto = date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta));
-    }
-
+    $rango_texto = ($desde == $hasta) ? date('d/m/Y', strtotime($desde)) : date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta));
     $totalReintegrado = 0;
+
+    $url_actual = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+    if (strpos($url_actual, 'publico=1') === false) {
+        $separador = parse_url($url_actual, PHP_URL_QUERY) ? '&' : '?';
+        $url_publica = $url_actual . $separador . 'publico=1&gen_by=' . $id_usuario;
+    } else {
+        $url_publica = $url_actual;
+    }
+    $qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=" . urlencode($url_publica);
 
 } catch (Exception $e) { die("Error: " . $e->getMessage()); }
 ?>
@@ -51,81 +85,179 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        body { font-family: 'Roboto', sans-serif; font-size: 10pt; color: #333; margin: 0; padding: 0; background: #f0f0f0; }
-        .page { background: white; width: 210mm; min-height: 296mm; padding: 15mm; margin: 0 auto; box-sizing: border-box; }
-        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #102A57; padding-bottom: 15px; margin-bottom: 20px; }
+        body { font-family: 'Roboto', sans-serif; background: #f0f0f0; margin: 0; padding: 20px; color: #333; }
+        
+        .report-page {
+            background: white;
+            width: 100%;
+            max-width: 210mm;
+            margin: 0 auto;
+            padding: 20px;
+            box-sizing: border-box;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #102A57; padding-bottom: 10px; margin-bottom: 20px; }
         .empresa-info h1 { margin: 0; font-size: 18pt; color: #102A57; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th { background: #102A57; color: white; padding: 8px; text-align: left; font-size: 9pt; }
-        td { border-bottom: 1px solid #ddd; padding: 8px; font-size: 9pt; }
-        .total-row td { border-top: 2px solid #102A57; font-weight: bold; font-size: 12pt; padding-top: 10px; }
-        .footer-section { margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; }
-        .firma-area { width: 40%; text-align: center; position: relative; margin-top: 20px; }
-        .firma-img { max-width: 250px; max-height: 110px; display: block; margin: 0 auto -28px auto; position: relative; z-index: 2; }
-        .firma-linea { border-top: 1.5px solid #000; position: relative; z-index: 1; padding-top: 5px; font-weight: bold; font-size: 10pt; }
-        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; justify-content: flex-end; }
-        .btn-descargar { background: #dc3545; color: white; padding: 15px 30px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; font-size: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
-        @media (max-width: 768px) { .no-print { left: 0; right: 0; bottom: 10px; padding: 0 15px; justify-content: center; } .btn-descargar { width: 100%; padding: 20px; font-size: 18px; text-transform: uppercase; } }
+        
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; min-width: 650px; }
+        th { background: #102A57; color: white; padding: 10px; text-align: left; font-size: 9pt; white-space: nowrap; }
+        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 9pt; vertical-align: middle; }
+        tr { page-break-inside: avoid; break-inside: avoid; }
+        
+        .total-row td { border-top: 2px solid #102A57; font-weight: bold; font-size: 11pt; }
+        .footer-section { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .firma-area { width: 180px; text-align: center; }
+        .firma-img { max-width: 150px; max-height: 80px; margin-bottom: -10px; }
+        .firma-linea { border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 9pt; }
+
+        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
+        .btn-descargar { 
+            background: #dc3545; color: white; padding: 15px 30px; border-radius: 50px; 
+            border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            header { flex-direction: column; text-align: center; gap: 10px; }
+            .no-print { left: 10px; right: 10px; bottom: 10px; }
+            .btn-descargar { width: 100%; }
+        }
+        @media screen { .report-page { margin-bottom: 30px; } }
     </style>
 </head>
 <body>
     <div class="no-print"><button onclick="descargarPDF()" class="btn-descargar">📥 DESCARGAR REPORTE</button></div>
 
-    <div id="reporteContenido" class="page">
-        <header>
-            <div style="width: 25%;"><?php if(!empty($conf['logo_url'])): ?><img src="<?php echo $conf['logo_url']; ?>" style="max-height: 75px;"><?php endif; ?></div>
-            <div class="empresa-info" style="text-align: center; width: 40%;">
-                <h1><?php echo strtoupper($conf['nombre_negocio'] ?? 'EMPRESA'); ?></h1>
-                <p><?php echo $conf['direccion_local'] ?? ''; ?></p><p><strong>CUIT: <?php echo $conf['cuit'] ?? 'S/D'; ?></strong></p>
-            </div>
-            <div style="text-align: right; width: 35%; font-size: 9pt;">
-                <strong>PERÍODO REPORTADO:</strong><br><?php echo $rango_texto; ?><br>
-                <strong>FECHA EMISIÓN:</strong><br><?php echo date('d/m/Y H:i'); ?>
-            </div>
-        </header>
+    <div id="reporteContenido">
+        <?php 
+        $filas_por_pagina = 18;
+        $chunks = array_chunk($registros, $filas_por_pagina);
+        if(empty($chunks)) $chunks = [[]];
+        $total_paginas = count($chunks);
+        foreach($chunks as $index => $chunk):
+            $es_ultima_pagina = ($index == $total_paginas - 1);
+        ?>
+        <div class="report-page" style="<?php echo (!$es_ultima_pagina) ? 'page-break-after: always;' : ''; ?>">
+            <header>
+                <div style="width: 20%;">
+                    <?php if(!empty($negocio['logo'])): ?>
+                        <img src="<?php echo $negocio['logo']; ?>?v=<?php echo time(); ?>" style="max-height: 70px;">
+                    <?php endif; ?>
+                </div>
+                <div class="empresa-info" style="width: 50%; text-align: center;">
+                    <h1><?php echo strtoupper($negocio['nombre']); ?></h1>
+                    <p style="font-size: 9pt; margin: 3px 0;"><?php echo $negocio['direccion']; ?></p>
+                    <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
+                </div>
+                <div style="text-align: right; width: 30%; font-size: 8pt;">
+                    <strong>PERÍODO REPORTADO:</strong> <br><?php echo $rango_texto; ?><br>
+                    <strong>EMISIÓN:</strong> <?php echo date('d/m/Y H:i'); ?>
+                </div>
+            </header>
 
-        <h3 style="color: #dc3545; border-left: 5px solid #dc3545; padding-left: 10px; margin-bottom: 20px;">DETALLE DE DEVOLUCIONES Y REINTEGROS</h3>
+            <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; text-transform: uppercase;">Detalle de Devoluciones y Reintegros</h3>
 
-        <table>
-            <thead><tr><th>FECHA</th><th>OPERADOR</th><th>TICKET ORIGEN</th><th>PRODUCTO</th><th>MOTIVO</th><th style="text-align: right;">REINTEGRO</th></tr></thead>
-            <tbody>
-                <?php foreach($registros as $r): 
-                    $totalReintegrado += $r['monto_devuelto'];
-                ?>
-                <tr>
-                    <td><?php echo date('d/m/y H:i', strtotime($r['fecha'])); ?></td>
-                    <td><?php echo strtoupper($r['usuario']); ?></td>
-                    <td>#<?php echo $r['id_venta_original']; ?></td>
-                    <td><?php echo strtoupper($r['descripcion']); ?> (<?php echo floatval($r['cantidad']); ?> u.)</td>
-                    <td><?php echo $r['motivo'] ?? 'Reingreso'; ?></td>
-                    <td style="text-align: right; font-weight: bold; color:#dc3545;">-$<?php echo number_format($r['monto_devuelto'], 2, ',', '.'); ?></td>
-                </tr>
-                <?php endforeach; ?>
-                <?php if(empty($registros)): ?><tr><td colspan="6" style="text-align:center;">No hubo devoluciones en este período.</td></tr><?php endif; ?>
-                
-                <tr class="total-row">
-                    <td colspan="5" style="text-align: right;">TOTAL REINTEGRADO:</td>
-                    <td style="text-align: right; color: #dc3545;">-$<?php echo number_format($totalReintegrado, 2, ',', '.'); ?></td>
-                </tr>
-            </tbody>
-        </table>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>FECHA</th>
+                            <th>OPERADOR</th>
+                            <th>TICKET ORIGEN</th>
+                            <th>PRODUCTO</th>
+                            <th>MOTIVO</th>
+                            <th style="text-align: right;">REINTEGRO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if(empty($chunk)): ?>
+                            <tr><td colspan="6" style="text-align:center; padding: 30px;">No hubo devoluciones en este periodo.</td></tr>
+                        <?php else: ?>
+                            <?php foreach($chunk as $r): 
+                                $totalReintegrado += $r['monto_devuelto'];
+                            ?>
+                            <tr>
+                                <td><?php echo date('d/m/y H:i', strtotime($r['fecha'])); ?></td>
+                                <td><?php echo strtoupper($r['usuario']); ?></td>
+                                <td>#<?php echo $r['id_venta_original']; ?></td>
+                                <td><?php echo strtoupper($r['descripcion']); ?> (<?php echo floatval($r['cantidad']); ?> u.)</td>
+                                <td><?php echo $r['motivo'] ?? 'Reingreso'; ?></td>
+                                <td style="text-align: right; font-weight: bold; color:#dc3545;">-$<?php echo number_format($r['monto_devuelto'], 2, ',', '.'); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                        
+                        <?php if($es_ultima_pagina): ?>
+                        <tr class="total-row">
+                            <td colspan="5" style="text-align: right;">TOTAL REINTEGRADO:</td>
+                            <td style="text-align: right; color: #dc3545;">-$<?php echo number_format($totalReintegrado, 2, ',', '.'); ?></td>
+                        </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
 
-        <div class="footer-section">
-            <div style="width: 55%; font-size: 8pt; color: #666; line-height: 1.4;">
-                <p><strong>DECLARACIÓN:</strong> Documento generado por el sistema de gestión. Refleja las operaciones de devolución de productos y reintegros de dinero a clientes.</p>
+            <?php if($es_ultima_pagina): ?>
+            <div class="footer-section">
+                <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.3;">
+                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente las operaciones de devolución y reintegros registradas en el sistema.</p>
+                </div>
+                <div style="width: 30%; text-align: center;">
+                    <img src="<?php echo $qr_url; ?>" style="width: 70px; height: 70px;" alt="QR Verificación">
+                    <p style="font-size: 7pt; margin-top: 5px; color:#666;">Verificar online</p>
+                </div>
+                <div class="firma-area" style="width: 30%;">
+                    <?php if(!empty($firmaUsuario)): ?>
+                        <img src="<?php echo $firmaUsuario; ?>?v=<?php echo time(); ?>" class="firma-img">
+                    <?php endif; ?>
+                    <div class="firma-linea">
+                        <?php 
+                            echo strtoupper($firmante['nombre_completo']) . " | " . strtoupper($firmante['nombre_rol']); 
+                        ?>
+                    </div>
+                </div>
             </div>
-            <div class="firma-area">
-                <?php if(!empty($firmaUsuario)): ?><img src="<?php echo $firmaUsuario; ?>?v=<?php echo time(); ?>" class="firma-img" alt="Firma"><?php else: ?><div style="height: 70px;"></div><?php endif; ?>
-                <div class="firma-linea"><?php echo strtoupper($userRow['nombre_completo'] ?? 'FIRMA AUTORIZADA'); ?></div>
-            </div>
+            <?php endif; ?>
         </div>
+        <?php endforeach; ?>
     </div>
 
     <script>
     function descargarPDF() {
         const element = document.getElementById('reporteContenido');
-        const opt = { margin: 0, filename: 'Reporte_Devoluciones.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
-        html2pdf().set(opt).from(element).save();
+        
+        const tableContainer = element.querySelector('.table-responsive');
+        if (tableContainer) tableContainer.style.overflowX = 'visible';
+
+        const opt = {
+            margin: [10, 10, 10, 10],
+            filename: 'Reporte_Devoluciones.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'], avoid: 'tr' }
+        };
+        
+        html2pdf().set(opt).from(element).toPdf().get('pdf').then(function (pdf) {
+            const totalPages = pdf.internal.getNumberOfPages();
+            for (let i = 1; i <= totalPages; i++) {
+                pdf.setPage(i);
+                
+                pdf.setDrawColor(200, 200, 200);
+                pdf.setLineWidth(0.5);
+                pdf.line(10, 282, 200, 282);
+                
+                pdf.setFontSize(8);
+                pdf.setTextColor(100, 100, 100);
+                pdf.text('Documento de Reporte de Devoluciones - <?php echo addslashes(strtoupper($negocio['nombre'])); ?>', 10, 287);
+                pdf.text('Emision: <?php echo date('d/m/Y H:i'); ?> | Op: <?php echo addslashes(strtoupper($operadorRow['usuario'] ?? 'S/D')); ?>', 105, 287, { align: 'center' });
+                pdf.text('Pagina ' + i + ' de ' + totalPages, 200, 287, { align: 'right' });
+            }
+        }).save().then(() => {
+            if (tableContainer) tableContainer.style.overflowX = 'auto';
+        });
     }
     </script>
 </body>

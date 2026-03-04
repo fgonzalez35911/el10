@@ -13,13 +13,43 @@ if (!$es_admin && !in_array('ver_devoluciones', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
+// --- LÓGICA DE FIRMA INTELIGENTE (Para el Dueño) ---
+// 1. Datos de quien opera actualmente
+$u_op = $conexion->prepare("SELECT usuario FROM usuarios WHERE id = ?");
+$u_op->execute([$user_id]);
+$operadorRow = $u_op->fetch(PDO::FETCH_ASSOC);
+
+// 2. Datos del Dueño para la Firma (Buscamos al usuario con rol 'dueño')
+$u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
+                             FROM usuarios u 
+                             JOIN roles r ON u.id_rol = r.id 
+                             WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
+$ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
+
+// Si no hay dueño, usamos los datos del operador actual
+$firmante = $ownerRow ? $ownerRow : ['nombre_completo' => 'RESPONSABLE', 'nombre_rol' => 'AUTORIZADO', 'id' => $user_id];
+
+// 3. Definir la ruta de la firma física
+$firmaReal = ""; 
+if($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
+    $firmaReal = "img/firmas/usuario_{$ownerRow['id']}.png";
+} elseif(file_exists("img/firmas/firma_admin.png")) {
+    $firmaReal = "img/firmas/firma_admin.png";
+}
+
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
 
-// --- FILTROS DE FECHA ---
+// OBTENER USUARIOS Y CLIENTES PARA EL FILTRO
+$usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
+$clientes_lista = $conexion->query("SELECT id, nombre FROM clientes ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
+
+// --- FILTROS ---
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $buscar = $_GET['buscar'] ?? '';
+$f_cliente = $_GET['id_cliente'] ?? '';
+$f_usuario = $_GET['id_usuario'] ?? '';
 
 // --- PROCESAMIENTO AJAX PARA TICKETS ---
 if (isset($_GET['ajax_get_ticket'])) {
@@ -31,7 +61,11 @@ if (isset($_GET['ajax_get_ticket'])) {
     $stmtDet = $conexion->prepare("SELECT dv.*, p.descripcion FROM detalle_ventas dv JOIN productos p ON dv.id_producto = p.id WHERE dv.id_venta = ?");
     $stmtDet->execute([$id_t]);
     $items = $stmtDet->fetchAll(PDO::FETCH_ASSOC);
-    $stmtDevs = $conexion->prepare("SELECT d.*, u.usuario as operador FROM devoluciones d JOIN usuarios u ON d.id_usuario = u.id WHERE d.id_venta_original = ?");
+    $stmtDevs = $conexion->prepare("SELECT d.*, u.usuario as operador, u.nombre_completo, r.nombre as nombre_rol, u.id as id_op 
+                                 FROM devoluciones d 
+                                 JOIN usuarios u ON d.id_usuario = u.id 
+                                 JOIN roles r ON u.id_rol = r.id 
+                                 WHERE d.id_venta_original = ?");
     $stmtDevs->execute([$id_t]);
     $info_devs = $stmtDevs->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode(['venta' => $venta, 'detalles' => $items, 'info_historial' => $info_devs, 'conf' => $conf]);
@@ -50,20 +84,45 @@ if (isset($_POST['accion']) && $_POST['accion'] == 'confirmar_reintegro') {
         } else {
             $conexion->prepare("INSERT INTO mermas (id_producto, cantidad, motivo, fecha, id_usuario) VALUES (?, ?, ?, NOW(), ?)")->execute([$_POST['id_p'], $_POST['cant'], "Devolución #".$_POST['id_v'], $user_id]);
         }
-        $conexion->commit(); echo json_encode(['status' => 'success']);
-    } catch (Exception $e) { $conexion->rollBack(); echo json_encode(['status' => 'error', 'msg' => $e->getMessage()]); }
+        $stmtCaja = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
+        $stmtCaja->execute([$user_id]);
+        $caja = $stmtCaja->fetch(PDO::FETCH_ASSOC);
+        if ($caja) {
+            $descG = "Reintegro Ticket #" . $_POST['id_v'] . " (" . $_POST['cant'] . " u.)";
+            $conexion->prepare("INSERT INTO gastos (descripcion, monto, categoria, fecha, id_usuario, id_caja_sesion) VALUES (?, ?, 'Devoluciones', NOW(), ?, ?)")->execute([$descG, $_POST['monto'], $user_id, $caja['id']]);
+        }
+        $conexion->commit(); 
+        echo json_encode(['status' => 'success']);
+    } catch (Exception $e) { 
+        if ($conexion->inTransaction()) $conexion->rollBack(); 
+        echo json_encode(['status' => 'error', 'msg' => $e->getMessage()]); 
+    }
     exit;
 }
 
 // --- CONSULTAS ---
-$sqlV = "SELECT v.id, v.total, v.fecha, c.nombre FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id WHERE v.estado='completada' AND DATE(v.fecha) BETWEEN ? AND ?";
-if(!empty($buscar)) { if(is_numeric($buscar)) $sqlV .= " AND v.id = ".intval($buscar); else $sqlV .= " AND c.nombre LIKE '%$buscar%'"; }
-$sqlV .= " ORDER BY v.fecha DESC LIMIT 15";
-$stmtV = $conexion->prepare($sqlV); $stmtV->execute([$desde, $hasta]); $ventas_lista = $stmtV->fetchAll(PDO::FETCH_ASSOC);
+$condV = ["v.estado='completada'", "DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?"];
+$paramsV = [$desde, $hasta];
+if(!empty($buscar)) { if(is_numeric($buscar)) { $condV[] = "v.id = ?"; $paramsV[] = intval($buscar); } else { $condV[] = "c.nombre LIKE ?"; $paramsV[] = "%$buscar%"; } }
+if($f_cliente !== '') { $condV[] = "v.id_cliente = ?"; $paramsV[] = $f_cliente; }
 
-$sqlH = "SELECT d.*, v.id as ticket_id, p.descripcion as producto, c.nombre as cliente FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id JOIN productos p ON d.id_producto = p.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE DATE(d.fecha) BETWEEN ? AND ? ORDER BY d.fecha DESC LIMIT 15";
-$stmtH = $conexion->prepare($sqlH); $stmtH->execute([$desde, $hasta]); $historial = $stmtH->fetchAll(PDO::FETCH_ASSOC);
+$sqlV = "SELECT v.id, v.total, v.fecha, c.nombre FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condV) . " ORDER BY v.fecha DESC LIMIT 15";
+$stmtV = $conexion->prepare($sqlV); $stmtV->execute($paramsV); $ventas_lista = $stmtV->fetchAll(PDO::FETCH_ASSOC);
+
+$condH = ["DATE(d.fecha) >= ?", "DATE(d.fecha) <= ?"];
+$paramsH = [$desde, $hasta];
+if(!empty($buscar)) { 
+    if(is_numeric($buscar)) { $condH[] = "v.id = ?"; $paramsH[] = intval($buscar); } 
+    else { $condH[] = "c.nombre LIKE ?"; $paramsH[] = "%$buscar%"; } 
+}
+if($f_cliente !== '') { $condH[] = "v.id_cliente = ?"; $paramsH[] = $f_cliente; }
+if($f_usuario !== '') { $condH[] = "d.id_usuario = ?"; $paramsH[] = $f_usuario; }
+
+$sqlH = "SELECT d.*, v.id as ticket_id, p.descripcion as producto, c.nombre as cliente FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id JOIN productos p ON d.id_producto = p.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condH) . " ORDER BY d.fecha DESC LIMIT 15";
+$stmtH = $conexion->prepare($sqlH); $stmtH->execute($paramsH); $historial = $stmtH->fetchAll(PDO::FETCH_ASSOC);
 $totalReintegros = array_sum(array_column($historial, 'monto_devuelto'));
+
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 
 require_once 'includes/layout_header.php'; ?>
 
@@ -73,12 +132,13 @@ $titulo = "Devoluciones";
 $subtitulo = "Gestión de reintegros y stock operativo";
 $icono_bg = "bi-arrow-counterclockwise";
 
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [
-    ['texto' => 'PDF', 'link' => "reporte_devoluciones.php?desde=$desde&hasta=$hasta", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger btn-sm rounded-pill px-3 shadow-sm', 'target' => '_blank']
+    ['texto' => 'PDF', 'link' => "reporte_devoluciones.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger btn-sm rounded-pill px-3 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
-    ['label' => 'Ítems Devueltos', 'valor' => count($historial), 'icono' => 'bi-arrow-return-left', 'border' => 'border-warning', 'icon_bg' => 'bg-warning bg-opacity-20'],
+    ['label' => 'Items Devueltos', 'valor' => count($historial), 'icono' => 'bi-arrow-return-left', 'border' => 'border-warning', 'icon_bg' => 'bg-warning bg-opacity-20'],
     ['label' => 'Total Reintegros', 'valor' => '$'.number_format($totalReintegros, 0), 'icono' => 'bi-currency-dollar', 'border' => 'border-success', 'icon_bg' => 'bg-success bg-opacity-20'],
     ['label' => 'Ventas Filtradas', 'valor' => count($ventas_lista), 'icono' => 'bi-receipt', 'icon_bg' => 'bg-white bg-opacity-10']
 ];
@@ -87,26 +147,72 @@ include 'includes/componente_banner.php';
 ?>
 
 <style>
-    /* TICKET ROOP (MODO OPERACIÓN) */
+    /* TICKET ROOP (MODO OPERACION) */
     .ticket-real { font-family: 'Courier New', Courier, monospace; font-size: 12px; color: #000; text-align: left; width: 100%; max-width: 290px; margin: 0 auto; }
     .ticket-real .centrado { text-align: center; }
     .ticket-real .linea { border-top: 1px dashed #000; margin: 5px 0; }
     .ticket-real .negrita { font-weight: bold; }
     .ticket-tachado { text-decoration: line-through; opacity: 0.5; }
-    
-    @media (max-width: 768px) {
-        .lista-scroll { max-height: 180px; overflow-y: auto; }
-    }
+    @media (max-width: 768px) { .lista-scroll { max-height: 180px; overflow-y: auto; } }
 </style>
 
-<div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
+<div class="container mt-n4 pb-5" style="position: relative; z-index: 20;">
     <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
+                    <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Hasta</label>
+                    <input type="date" name="hasta" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Cliente</label>
+                    <select name="id_cliente" class="form-select form-select-sm border-light-subtle fw-bold">
+                        <option value="">Todos</option>
+                        <?php foreach($clientes_lista as $cli): ?>
+                            <option value="<?php echo $cli['id']; ?>" <?php echo ($f_cliente == $cli['id']) ? 'selected' : ''; ?>><?php echo strtoupper($cli['nombre']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Operador</label>
+                    <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
+                        <option value="">Todos</option>
+                        <?php foreach($usuarios_lista as $usu): ?>
+                            <option value="<?php echo $usu['id']; ?>" <?php echo ($f_usuario == $usu['id']) ? 'selected' : ''; ?>><?php echo strtoupper($usu['usuario']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                        <i class="bi bi-funnel-fill me-1"></i> FILTRAR
+                    </button>
+                    <a href="devoluciones.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 mb-4 bg-primary bg-gradient text-white overflow-hidden" style="border-left: 5px solid #102A57 !important;">
         <div class="card-body p-3">
-            <form method="GET" class="row g-2 align-items-end">
-                <div class="col-md-3 col-6"><label class="small fw-bold text-muted uppercase">Desde</label><input type="date" name="desde" class="form-control border-light-subtle fw-bold" value="<?php echo $desde; ?>"></div>
-                <div class="col-md-3 col-6"><label class="small fw-bold text-muted uppercase">Hasta</label><input type="date" name="hasta" class="form-control border-light-subtle fw-bold" value="<?php echo $hasta; ?>"></div>
-                <div class="col-md-4 col-12"><div class="input-group"><input type="text" name="buscar" class="form-control border-light-subtle fw-bold" placeholder="Ticket o Cliente..." value="<?php echo htmlspecialchars($buscar); ?>"><button class="btn btn-primary px-3"><i class="bi bi-search"></i></button></div></div>
-                <div class="col-md-2 col-12"><button type="submit" class="btn btn-dark w-100 fw-bold rounded-3">FILTRAR</button></div>
+            <form method="GET" class="row g-2 align-items-center">
+                <input type="hidden" name="desde" value="<?php echo $desde; ?>">
+                <input type="hidden" name="hasta" value="<?php echo $hasta; ?>">
+                <div class="col-md-9 col-12">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Crítico de Tickets</h6>
+                    <p class="small mb-0 opacity-75">Ingrese el número de ticket o nombre del cliente para localizar la venta y proceder al reintegro.</p>
+                </div>
+                <div class="col-md-3 col-12 text-end">
+                    <div class="input-group input-group-lg">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Ticket #..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
+                </div>
             </form>
         </div>
     </div>
@@ -144,14 +250,11 @@ include 'includes/componente_banner.php';
 </div>
 
 <?php
-// Generamos la ruta de la firma para inyectarla en JS (Igual que en Gastos)
-$ruta_firma = "img/firmas/firma_admin.png";
-if (!file_exists($ruta_firma) && file_exists("img/firmas/usuario_{$user_id}.png")) {
-    $ruta_firma = "img/firmas/usuario_{$user_id}.png";
-}
+// Usamos la firma inteligente definida arriba
+$ruta_firma_js = $firmaReal;
 ?>
 <script>
-const miFirma = "<?php echo file_exists($ruta_firma) ? $ruta_firma : ''; ?>";
+const miFirma = "<?php echo $ruta_firma_js; ?>";
 
 function verTicket(id, modo) {
     Swal.fire({ title: 'Cargando...', didOpen: () => { Swal.showLoading(); } });
@@ -176,13 +279,18 @@ function verTicket(id, modo) {
             });
 
             let montoF = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(totalDevuelto);
-            let linkPdfPublico = window.location.origin + "/ticket.php?id=" + v.id;
+            let linkPdfPublico = window.location.origin + "/ticket_devolucion_pdf.php?id=" + v.id;
             let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
             let logoHtml = conf.logo_url ? `<img src="${conf.logo_url}?v=${Date.now()}" style="max-height: 50px; margin-bottom: 10px;">` : '';
             
             let devInfo = data.info_historial[0] || {};
-            let nombreFirma = devInfo.operador ? devInfo.operador.toUpperCase() : 'FIRMA AUTORIZADA';
-            let firmaHtml = miFirma ? `<img src="${miFirma}?v=${Date.now()}" style="max-height: 50px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${nombreFirma}</small>` : '';
+            // Aclaración: Nombre Real + Rol del operador
+            let aclaracionOp = devInfo.nombre_completo ? (devInfo.nombre_completo + " | " + devInfo.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
+            // Firma del Operador: 80px y sobre la linea
+            let rutaFirmaOp = devInfo.id_op ? `img/firmas/usuario_${devInfo.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
+            let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
+
+            let linkPdfReintegro = window.location.origin + "/ticket_devolucion_pdf.php?id=" + v.id;
 
             const html = `
                 <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
@@ -198,14 +306,14 @@ function verTicket(id, modo) {
                     <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
                         <div style="margin-bottom: 4px;"><strong>FECHA VENTA:</strong> ${v.fecha}</div>
                         <div style="margin-bottom: 4px;"><strong>CLIENTE:</strong> ${v.cliente || 'C. Final'}</div>
-                        <div><strong>OPERADOR DEV:</strong> ${nombreFirma}</div>
+                        <div><strong>OPERADOR DEV:</strong> ${aclaracionOp}</div>
                     </div>
                     <div style="margin-bottom: 15px; font-size: 13px;">
                         <strong style="border-bottom: 1px solid #ccc; display:block; margin-bottom:5px;">DETALLE DE REINTEGRO:</strong>
                         ${itemsH}
                     </div>
                     <div style="background: #dc354510; border-left: 4px solid #dc3545; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-                        <span style="font-size: 1.1em; font-weight:800;">TOTAL DEV:</span>
+                        <span style="font-size: 1.1em; font-weight:800;">TOTAL:</span>
                         <span style="font-size: 1.15em; font-weight:900; color: #dc3545;">-${montoF}</span>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
@@ -216,9 +324,9 @@ function verTicket(id, modo) {
                     </div>
                 </div>
                 <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3 no-print">
-                    <button class="btn btn-sm btn-outline-dark fw-bold" onclick="window.open('${linkPdfPublico}', '_blank')">TICKET VENTA</button>
-                    <button class="btn btn-sm btn-success fw-bold" onclick="mandarWADev('${v.id}', '${montoF}', '${linkPdfPublico}')">WA</button>
-                    <button class="btn btn-sm btn-primary fw-bold" onclick="Swal.fire('Email', 'Función de email disponible.', 'info')">EMAIL</button>
+                    <button class="btn btn-sm btn-outline-dark fw-bold" onclick="window.open('${linkPdfReintegro}', '_blank')">PDF</button>
+                    <button class="btn btn-sm btn-success fw-bold" onclick="mandarWADev('${v.id}', '${montoF}', '${linkPdfReintegro}')">WA</button>
+                    <button class="btn btn-sm btn-primary fw-bold" onclick="mandarMailDevolucion(${v.id})">EMAIL</button>
                 </div>
             `;
             Swal.fire({ html: html, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
@@ -255,6 +363,29 @@ function confirmar(idV, idP, cant, monto, nombre) {
 function mandarWADev(idTicket, monto, link) {
     let msj = `Se registró un reintegro de *${monto}* (Ref: Ticket #${idTicket}).\n📄 Ver ticket original: ${link}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
+}
+function mandarMailDevolucion(id) {
+    Swal.fire({ 
+        title: 'Enviar Comprobante', 
+        text: 'Ingrese el correo electrónico del cliente:',
+        input: 'email', 
+        showCancelButton: true,
+        confirmButtonText: 'ENVIAR AHORA',
+        cancelButtonText: 'CANCELAR'
+    }).then((r) => {
+        if(r.isConfirmed && r.value) {
+            Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            let fData = new FormData(); 
+            fData.append('id', id); 
+            fData.append('email', r.value);
+            
+            fetch('acciones/enviar_email_devolucion.php', { method: 'POST', body: fData })
+            .then(res => res.json())
+            .then(d => { 
+                Swal.fire(d.status === 'success' ? 'Comprobante Enviado' : 'Error al enviar', d.msg || '', d.status); 
+            });
+        }
+    });
 }
 </script>
 <?php require_once 'includes/layout_footer.php'; ?>

@@ -46,20 +46,40 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 // --- 3. FILTROS Y CONSULTA UNIFICADA (GASTOS + MERMAS) ---
+// --- 3. FILTROS Y CONSULTA UNIFICADA (GASTOS + MERMAS) ---
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
-$hasta = $_GET['hasta'] ?? date('Y-m-t');
+$hasta = $_GET['hasta'] ?? date('Y-m-d');
+$f_cat = $_GET['categoria_filtro'] ?? '';
+$f_usu = $_GET['id_usuario'] ?? '';
 
-$sql = "(SELECT g.id, g.descripcion, g.monto, g.categoria, g.fecha, u.usuario, u.nombre_completo, 'gasto' as tipo_registro 
-         FROM gastos g JOIN usuarios u ON g.id_usuario = u.id 
-         WHERE DATE(g.fecha) BETWEEN ? AND ?)
+// Filtros para Gastos
+$condG = ["DATE(g.fecha) >= ?", "DATE(g.fecha) <= ?"];
+$paramsG = [$desde, $hasta];
+if($f_cat !== '' && $f_cat !== 'Mermas') { $condG[] = "g.categoria = ?"; $paramsG[] = $f_cat; }
+if($f_usu !== '') { $condG[] = "g.id_usuario = ?"; $paramsG[] = $f_usu; }
+
+// Filtros para Mermas
+$condM = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
+$paramsM = [$desde, $hasta];
+if($f_usu !== '') { $condM[] = "m.id_usuario = ?"; $paramsM[] = $f_usu; }
+if($f_cat !== '' && $f_cat !== 'Mermas') { $condM[] = "1=0"; } 
+
+$sql = "(SELECT g.id, g.descripcion, g.monto, g.categoria, g.fecha, u.usuario, u.nombre_completo, 'gasto' as tipo_registro, '' as producto_nom, 0 as cantidad, r.nombre as nombre_rol, u.id as id_op 
+         FROM gastos g 
+         JOIN usuarios u ON g.id_usuario = u.id 
+         JOIN roles r ON u.id_rol = r.id
+         WHERE " . implode(" AND ", $condG) . ")
         UNION 
-        (SELECT m.id, CONCAT('MERMA: ', m.motivo) as descripcion, 0 as monto, 'Mermas' as categoria, m.fecha, u.usuario, u.nombre_completo, 'merma' as tipo_registro 
-         FROM mermas m JOIN usuarios u ON m.id_usuario = u.id 
-         WHERE DATE(m.fecha) BETWEEN ? AND ?)
+        (SELECT m.id, m.motivo as descripcion, (m.cantidad * p.precio_costo) as monto, 'Mermas' as categoria, m.fecha, u.usuario, u.nombre_completo, 'merma' as tipo_registro, p.descripcion as producto_nom, m.cantidad, r.nombre as nombre_rol, u.id as id_op 
+         FROM mermas m 
+         JOIN usuarios u ON m.id_usuario = u.id 
+         JOIN roles r ON u.id_rol = r.id
+         JOIN productos p ON m.id_producto = p.id
+         WHERE " . implode(" AND ", $condM) . ")
         ORDER BY fecha DESC";
 
 $stmtG = $conexion->prepare($sql);
-$stmtG->execute([$desde, $hasta, $desde, $hasta]);
+$stmtG->execute(array_merge($paramsG, $paramsM));
 $movimientos = $stmtG->fetchAll(PDO::FETCH_ASSOC);
 
 $totalFiltrado = 0;
@@ -96,8 +116,9 @@ $titulo = "Gastos y Retiros";
 $subtitulo = $conf['label_gastos'] ?? 'Control operativo de caja.';
 $icono_bg = "bi-wallet2";
 
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [
-    ['texto' => 'PDF', 'link' => "reporte_gastos.php?desde=$desde&hasta=$hasta", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']
+    ['texto' => 'REPORTE PDF', 'link' => "reporte_gastos.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
@@ -112,10 +133,48 @@ include 'includes/componente_banner.php';
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
-            <form method="GET" class="row g-2 align-items-end">
-                <div class="col-md-5 col-6"><label class="small fw-bold text-muted uppercase">Desde</label><input type="date" name="desde" class="form-control fw-bold shadow-none" value="<?php echo $desde; ?>"></div>
-                <div class="col-md-5 col-6"><label class="small fw-bold text-muted uppercase">Hasta</label><input type="date" name="hasta" class="form-control fw-bold shadow-none" value="<?php echo $hasta; ?>"></div>
-                <div class="col-md-2 col-12"><button type="submit" class="btn btn-primary w-100 fw-bold rounded-3 shadow-sm">FILTRAR</button></div>
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
+                    <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 120px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Hasta</label>
+                    <input type="date" name="hasta" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Categoría</label>
+                    <select name="categoria_filtro" class="form-select form-select-sm border-light-subtle fw-bold">
+                        <option value="">Todas</option>
+                        <option value="Proveedores" <?php echo ($f_cat == 'Proveedores') ? 'selected' : ''; ?>>🚚 Proveedores</option>
+                        <option value="Servicios" <?php echo ($f_cat == 'Servicios') ? 'selected' : ''; ?>>💡 Servicios</option>
+                        <option value="Alquiler" <?php echo ($f_cat == 'Alquiler') ? 'selected' : ''; ?>>🏠 Alquiler</option>
+                        <option value="Sueldos" <?php echo ($f_cat == 'Sueldos') ? 'selected' : ''; ?>>👥 Sueldos</option>
+                        <option value="Retiro" <?php echo ($f_cat == 'Retiro') ? 'selected' : ''; ?>>💸 Retiro Ganancias</option>
+                        <option value="Insumos" <?php echo ($f_cat == 'Insumos') ? 'selected' : ''; ?>>🧻 Insumos</option>
+                        <option value="Mermas" <?php echo ($f_cat == 'Mermas') ? 'selected' : ''; ?>>📉 Mermas (Stock)</option>
+                        <option value="Otros" <?php echo ($f_cat == 'Otros') ? 'selected' : ''; ?>>📦 Otros</option>
+                    </select>
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Operador</label>
+                    <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
+                        <option value="">Todos</option>
+                        <?php 
+                        $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
+                        foreach($usuarios_lista as $usu): ?>
+                            <option value="<?php echo $usu['id']; ?>" <?php echo ($f_usu == $usu['id']) ? 'selected' : ''; ?>><?php echo strtoupper($usu['usuario']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                        <i class="bi bi-funnel-fill me-1"></i> FILTRAR
+                    </button>
+                    <a href="gastos.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
+                    </a>
+                </div>
             </form>
         </div>
     </div>
@@ -125,7 +184,7 @@ include 'includes/componente_banner.php';
             <div class="card border-0 shadow-sm rounded-4 h-100">
                 <div class="card-header bg-white fw-bold py-3 text-danger"><i class="bi bi-dash-circle-fill me-2"></i> Nuevo Retiro</div>
                 <div class="card-body bg-light rounded-bottom">
-                    <form method="POST">
+                    <form method="POST" id="formGasto">
                         <div class="mb-3"><label class="small fw-bold text-muted uppercase">Monto ($)</label><div class="input-group"><span class="input-group-text bg-white border-end-0 text-danger fw-bold">$</span><input type="number" step="0.01" name="monto" class="form-control form-control-lg fw-bold border-start-0 text-danger" required></div></div>
                         <div class="mb-3"><label class="small fw-bold text-muted uppercase">Descripción</label><input type="text" name="descripcion" class="form-control" required placeholder="Detalle del gasto"></div>
                         <div class="mb-4"><label class="small fw-bold text-muted uppercase">Categoría</label><select name="categoria" class="form-select"><option value="Proveedores">🚚 Proveedores</option><option value="Servicios">💡 Servicios</option><option value="Alquiler">🏠 Alquiler</option><option value="Sueldos">👥 Sueldos</option><option value="Retiro">💸 Retiro Ganancias</option><option value="Insumos">🧻 Insumos</option><option value="Otros">📦 Otros</option></select></div>
@@ -144,7 +203,7 @@ include 'includes/componente_banner.php';
                             <?php foreach($movimientos as $g): 
                                 $jsonData = htmlspecialchars(json_encode($g), ENT_QUOTES, 'UTF-8');
                             ?>
-                            <tr style="cursor:pointer;" onclick="<?php echo $g['tipo_registro'] == 'gasto' ? "verTicket($jsonData)" : "Swal.fire('Merma','Registro informativo de stock.','info')"; ?>">
+                            <tr style="cursor:pointer;" onclick="<?php echo $g['tipo_registro'] == 'gasto' ? "verTicket($jsonData)" : "verMerma($jsonData)"; ?>">
                                 <td class="ps-4 text-start"><div class="fw-bold"><?php echo date('d/m/Y', strtotime($g['fecha'])); ?></div><small class="text-muted"><?php echo date('H:i', strtotime($g['fecha'])); ?> hs</small></td>
                                 <td class="text-start">
                                     <div class="fw-bold text-dark"><?php echo htmlspecialchars($g['descripcion']); ?></div>
@@ -171,8 +230,11 @@ function verTicket(gasto) {
     let linkPdfPublico = window.location.origin + "/ticket_gasto_pdf.php?id=" + gasto.id;
     let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
     let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}" style="max-height: 50px; margin-bottom: 10px;">` : '';
-    let nombreFirma = gasto.nombre_completo ? gasto.nombre_completo.toUpperCase() : 'FIRMA AUTORIZADA';
-    let firmaHtml = miFirma ? `<img src="${miFirma}" style="max-height: 50px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${nombreFirma}</small>` : '';
+    
+    // Firma del Operador: Grande (80px) y sobre la linea
+    let aclaracionOp = gasto.nombre_completo ? (gasto.nombre_completo + " | " + gasto.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
+    let rutaFirmaOp = gasto.id_op ? `img/firmas/usuario_${gasto.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
+    let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
 
     let ticketHTML = `
         <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
@@ -189,7 +251,7 @@ function verTicket(gasto) {
             <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
                 <div style="margin-bottom: 4px;"><strong>FECHA:</strong> ${fechaF}</div>
                 <div style="margin-bottom: 4px;"><strong>CATEGORÍA:</strong> ${gasto.categoria}</div>
-                <div><strong>OPERADOR:</strong> ${(gasto.usuario || 'ADMIN').toUpperCase()}</div>
+                <div><strong>OPERADOR:</strong> ${aclaracionOp}</div>
             </div>
             <div style="margin-bottom: 15px; font-size: 13px;">
                 <strong style="border-bottom: 1px solid #ccc; display:block; margin-bottom:5px;">DETALLE:</strong>
@@ -201,7 +263,11 @@ function verTicket(gasto) {
             </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
                 <div style="width: 45%; text-align: center;">${firmaHtml}</div>
-                <div style="width: 45%; text-align: center;"><img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;"></div>
+                <div style="width: 45%; text-align: center;">
+                    <a href="${linkPdfPublico}" target="_blank">
+                        <img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;">
+                    </a>
+                </div>
             </div>
         </div>
         <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3 no-print">
@@ -213,19 +279,126 @@ function verTicket(gasto) {
     Swal.fire({ html: ticketHTML, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
 }
 
+function verMerma(merma) {
+    let montoF = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(merma.monto);
+    let fechaF = new Date(merma.fecha).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    let linkPdfPublico = window.location.origin + "/ticket_merma_pdf.php?id=" + merma.id;
+    let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
+    let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}" style="max-height: 50px; margin-bottom: 10px;">` : '';
+    
+    let aclaracionOp = merma.nombre_completo ? (merma.nombre_completo + " | " + merma.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
+    let rutaFirmaOp = merma.id_op ? `img/firmas/usuario_${merma.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
+    let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
+
+    let ticketHTML = `
+        <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
+            <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 15px; margin-bottom: 15px;">
+                ${logoHtml}
+                <h4 style="font-weight: 900; margin: 0; text-transform: uppercase;">${miLocal.nombre_negocio}</h4>
+                <small style="color: #666;">${miLocal.direccion_local}</small>
+            </div>
+            <div style="text-align: center; margin-bottom: 15px;">
+                <h5 style="font-weight: 900; color: #dc3545; letter-spacing: 1px; margin:0;">COMPROBANTE MERMA</h5>
+                <span style="font-size: 10px; background: #eee; padding: 2px 6px; border-radius: 4px;">OP #${merma.id}</span>
+            </div>
+            <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+                <div style="margin-bottom: 4px;"><strong>FECHA:</strong> ${fechaF}</div>
+                <div style="margin-bottom: 4px;"><strong>PRODUCTO:</strong> ${merma.producto_nom.toUpperCase()}</div>
+                <div style="margin-bottom: 4px;"><strong>CANTIDAD:</strong> ${parseFloat(merma.cantidad)} u.</div>
+                <div><strong>OPERADOR:</strong> ${aclaracionOp}</div>
+            </div>
+            <div style="margin-bottom: 15px; font-size: 13px;">
+                <strong style="border-bottom: 1px solid #ccc; display:block; margin-bottom:5px;">DETALLE:</strong>
+                ${merma.descripcion}
+            </div>
+            <div style="background: #dc354510; border-left: 4px solid #dc3545; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+                <span style="font-size: 1.1em; font-weight:800;">TOTAL:</span>
+                <span style="font-size: 1.15em; font-weight:900; color: #dc3545; white-space: nowrap;">-${montoF}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
+                <div style="width: 45%; text-align: center;">${firmaHtml}</div>
+                <div style="width: 45%; text-align: center;"><img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;"></div>
+            </div>
+        </div>
+        <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3 no-print">
+            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="window.open('${linkPdfPublico}', '_blank')">PDF</button>
+            <button class="btn btn-sm btn-success fw-bold" onclick="mandarWAMerma('${merma.producto_nom}', '${montoF}', '${linkPdfPublico}')">WA</button>
+            <button class="btn btn-sm btn-primary fw-bold" onclick="mandarMailMerma(${merma.id})">EMAIL</button>
+        </div>
+    `;
+    Swal.fire({ html: ticketHTML, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
+}
+
+function mandarWAMerma(producto, monto, link) {
+    let msj = `Se registró una Merma (pérdida) de *${producto}* por un valor de costo de *${monto}*.\n📄 Ver comprobante: ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
+}
+
+function mandarMailMerma(id) {
+    Swal.fire({ title: 'Enviar Comprobante', text: 'Ingrese el correo del destinatario:', input: 'email', showCancelButton: true }).then((r) => {
+        if(r.isConfirmed && r.value) {
+            Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            let fData = new FormData(); fData.append('id', id); fData.append('email', r.value);
+            fetch('acciones/enviar_email_merma.php', { method: 'POST', body: fData })
+            .then(res => res.json()).then(d => { Swal.fire(d.status === 'success' ? 'Enviado' : 'Error', d.msg || '', d.status); });
+        }
+    });
+}
+
 function mandarWAGasto(cat, monto, link) {
     let msj = `Se registró Gasto de *${cat}* por *${monto}*.\n📄 Ticket: ${link}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
 }
 
 function mandarMailGasto(id) {
-    Swal.fire({ title: 'Enviar Ticket', input: 'email', showCancelButton: true }).then((r) => {
+    Swal.fire({ 
+        title: 'Enviar Ticket', 
+        text: 'Ingrese el correo electrónico del destinatario:',
+        input: 'email', 
+        showCancelButton: true,
+        confirmButtonText: 'ENVIAR AHORA',
+        cancelButtonText: 'CANCELAR'
+    }).then((r) => {
         if(r.isConfirmed && r.value) {
-            let fData = new FormData(); fData.append('id', id); fData.append('email', r.value);
+            // Mostramos el "Enviando..."
+            Swal.fire({ 
+                title: 'Enviando...', 
+                allowOutsideClick: false, 
+                didOpen: () => { Swal.showLoading(); } 
+            });
+
+            let fData = new FormData(); 
+            fData.append('id', id); 
+            fData.append('email', r.value);
+
             fetch('acciones/enviar_email_gasto.php', { method: 'POST', body: fData })
-            .then(res => res.json()).then(d => { Swal.fire(d.status === 'success' ? 'Enviado' : 'Error', '', d.status); });
+            .then(res => res.json())
+            .then(d => { 
+                // Mostramos el resultado final (Éxito o Error)
+                Swal.fire(
+                    d.status === 'success' ? 'Enviado con éxito' : 'Error al enviar', 
+                    d.msg || '', 
+                    d.status
+                ); 
+            })
+            .catch(error => {
+                Swal.fire('Error', 'Hubo un problema de conexión con el servidor.', 'error');
+            });
         }
     });
 }
+document.getElementById('formGasto')?.addEventListener('submit', function(e) {
+    const cajaAbierta = <?php echo $id_caja_sesion ? 'true' : 'false'; ?>;
+    if (!cajaAbierta) {
+        e.preventDefault();
+        Swal.fire({
+            icon: 'warning',
+            title: 'Caja Cerrada',
+            text: 'Debes abrir la caja antes de registrar un gasto manual.',
+            confirmButtonColor: '#dc3545',
+            confirmButtonText: 'ENTENDIDO'
+        });
+    }
+});
 </script>
 <?php include 'includes/layout_footer.php'; ?>

@@ -11,7 +11,12 @@ $id_mov = $_GET['id'] ?? 0;
 if (!$id_mov) die('Acceso inválido.');
 
 // Consulta adaptada a mermas pero manteniendo el estilo de ticket_proveedor_pdf.php
-$stmt = $conexion->prepare("SELECT m.*, p.descripcion as producto, p.precio_costo, u.usuario as operador, u.nombre_completo FROM mermas m JOIN productos p ON m.id_producto = p.id LEFT JOIN usuarios u ON m.id_usuario = u.id WHERE m.id = ?");
+$stmt = $conexion->prepare("SELECT m.*, p.descripcion as producto, p.precio_costo, u.usuario as operador, u.nombre_completo, r.nombre as nombre_rol 
+                             FROM mermas m 
+                             JOIN productos p ON m.id_producto = p.id 
+                             JOIN usuarios u ON m.id_usuario = u.id 
+                             JOIN roles r ON u.id_rol = r.id 
+                             WHERE m.id = ?");
 $stmt->execute([$id_mov]);
 $mov = $stmt->fetch(PDO::FETCH_OBJ);
 if (!$mov) die('El comprobante no existe.');
@@ -48,9 +53,9 @@ $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 
 $pdf->Ln(3);
 $pdf->Cell(0, 5, "Fecha: " . date('d/m/Y H:i', strtotime($mov->fecha)), 0, 1, 'L');
-$pdf->Cell(0, 5, "Producto: " . utf8_decode(strtoupper($mov->producto)), 0, 1, 'L');
-$pdf->Cell(0, 5, "Operador: " . utf8_decode(strtoupper($mov->operador ?? 'ADMIN')), 0, 1, 'L');
-$pdf->Cell(0, 5, "Motivo: " . utf8_decode($mov->motivo), 0, 1, 'L');
+$pdf->MultiCell(0, 4, "Producto: " . utf8_decode(strtoupper($mov->producto)), 0, 'L');
+$pdf->MultiCell(0, 4, "Operador: " . utf8_decode(strtoupper($mov->operador ?? 'ADMIN')), 0, 'L');
+$pdf->MultiCell(0, 4, "Motivo: " . utf8_decode($mov->motivo), 0, 'L');
 
 $pdf->Ln(3);
 $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
@@ -64,7 +69,9 @@ $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 $pdf->Ln(8);
 $y_firma = $pdf->GetY();
 $ruta_firma = "img/firmas/firma_admin.png";
-if (!file_exists($ruta_firma) && file_exists("img/firmas/usuario_" . $mov->id_usuario . ".png")) {
+
+// CORRECCIÓN: Si el usuario que registró la merma tiene firma, la usamos por sobre la de admin
+if (isset($mov->id_usuario) && $mov->id_usuario > 0 && file_exists("img/firmas/usuario_" . $mov->id_usuario . ".png")) {
     $ruta_firma = "img/firmas/usuario_" . $mov->id_usuario . ".png";
 }
 
@@ -78,7 +85,9 @@ if (file_exists($ruta_firma)) {
 $pdf->SetFont('Courier', '', 8);
 $pdf->Cell(0, 4, "________________________", 0, 1, 'C');
 $pdf->SetFont('Courier', 'B', 8);
-$aclaracion = $mov->nombre_completo ? strtoupper($mov->nombre_completo) : "FIRMA AUTORIZADA";
+$n_op = $mov->nombre_completo ? $mov->nombre_completo : $mov->operador;
+$r_op = $mov->nombre_rol ? $mov->nombre_rol : "OPERADOR";
+$aclaracion = strtoupper($n_op) . " | " . strtoupper($r_op);
 $pdf->Cell(0, 4, utf8_decode($aclaracion), 0, 1, 'C');
 
 // QR

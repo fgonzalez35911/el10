@@ -103,18 +103,29 @@ if (isset($_GET['borrar'])) {
     } catch (Exception $e) { header("Location: clientes.php?error=db"); exit; }
 }
 
-// 4. CONSULTA DE DATOS (CON FILTRO DE CUMPLEAÑOS)
-$where_clause = "";
+// 4. CONSULTA DE DATOS CON FILTROS AVANZADOS
+$buscar = $_GET['buscar'] ?? ''; 
+$estado = $_GET['estado'] ?? '';
+$filtro_esp = $_GET['filtro'] ?? '';
+// Esta es la línea que soluciona el Warning y pasa los datos al PDF
+$query_filtros = "buscar=" . urlencode($buscar) . "&estado=" . urlencode($estado) . "&filtro=" . urlencode($filtro_esp);
+
+$cond = [];
 if (isset($_GET['filtro']) && $_GET['filtro'] == 'cumple') {
-    $where_clause = " WHERE MONTH(c.fecha_nacimiento) = MONTH(CURDATE()) AND DAY(c.fecha_nacimiento) = DAY(CURDATE()) ";
+    $cond[] = "MONTH(c.fecha_nacimiento) = MONTH(CURDATE()) AND DAY(c.fecha_nacimiento) = DAY(CURDATE())";
 }
+if (isset($_GET['estado'])) {
+    if ($_GET['estado'] == 'deuda') $cond[] = "(SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'debe') - (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'haber') > 0.1";
+    if ($_GET['estado'] == 'aldia') $cond[] = "(SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'debe') - (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'haber') <= 0.1";
+}
+
+$where_clause = (count($cond) > 0) ? " WHERE " . implode(" AND ", $cond) : "";
 
 $sql = "SELECT c.*, 
         (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'debe') - 
         (SELECT COALESCE(SUM(monto),0) FROM movimientos_cc WHERE id_cliente = c.id AND tipo = 'haber') as saldo_calculado,
         (SELECT MAX(fecha) FROM ventas WHERE id_cliente = c.id) as ultima_venta_fecha
         FROM clientes c $where_clause ORDER BY c.nombre ASC";
-
 // FIX: Forzamos FETCH_ASSOC para evitar el error de stdClass
 $clientes_query = $conexion->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 $clientes_json = [];
@@ -147,59 +158,100 @@ include 'includes/layout_header.php';
 ?>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.8/css/intlTelInput.css">
+<style>
+    .cliente-row { 
+        transition: all 0.3s ease; 
+        border-radius: 12px;
+        margin-bottom: 8px;
+    }
+    .cliente-row:hover { 
+        background-color: #f8faff !important; 
+        transform: scale(1.002);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    }
+    .avatar-wrapper { position: relative; }
+    .status-dot {
+        position: absolute; bottom: 0; right: 0;
+        width: 12px; height: 12px;
+        border: 2px solid #fff; border-radius: 50%;
+    }
+    .btn-action-custom {
+        width: 35px; height: 35px;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 10px; transition: all 0.2s;
+        background: #f1f4f9; border: none;
+    }
+    .btn-action-custom:hover { transform: translateY(-2px); }
+</style>
 
-<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
-    <i class="bi bi-people-fill bg-icon-large" style="z-index: 0;"></i>
-    <div class="container position-relative" style="z-index: 2;">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="font-cancha mb-0 text-white">Cartera de Clientes</h2>
-                <p class="opacity-75 mb-0 text-white small">Gestión de cuentas y fidelización</p>
-            </div>
-            <?php if($es_admin || in_array('crear_cliente', $permisos)): ?>
-            <button type="button" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModalCrear()">
-                <i class="bi bi-person-plus-fill me-2"></i> NUEVO CLIENTE
-            </button>
-            <?php endif; ?>
-        </div>
-        <div class="row g-3">
-            <div class="col-12 col-md-4">
-                <div class="header-widget">
-                    <div><div class="widget-label">Total Clientes</div><div class="widget-value text-white"><?php echo $totalClientes; ?></div></div>
-                    <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-people"></i></div>
+<?php
+$titulo = "Cartera de Clientes";
+$subtitulo = "Gestión de cuentas y fidelización";
+$icono_bg = "bi-people-fill";
+
+$botones = [
+    ['texto' => 'PDF', 'link' => "reporte_clientes.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger btn-sm rounded-pill px-3 shadow-sm', 'target' => '_blank']
+];
+$widgets = [
+    ['label' => 'Total Clientes', 'valor' => $totalClientes, 'icono' => 'bi-people', 'icon_bg' => 'bg-white bg-opacity-10'],
+    ['label' => 'Deuda en Calle', 'valor' => '$'.number_format($totalDeudaCalle, 0, ',', '.'), 'icono' => 'bi-graph-down-arrow', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20'],
+    ['label' => 'Clientes al Día', 'valor' => $cntAlDia, 'icono' => 'bi-shield-check', 'border' => 'border-success', 'icon_bg' => 'bg-success bg-opacity-20']
+];
+
+include 'includes/componente_banner.php'; 
+?>
+
+<div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-3">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <div class="flex-grow-1" style="min-width: 250px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Búsqueda Rápida</label>
+                    <input type="text" name="buscar" id="buscador" class="form-control form-control-sm border-light-subtle fw-bold" placeholder="Nombre o DNI..." value="<?php echo htmlspecialchars($buscar); ?>" onkeyup="filtrarClientes()">
                 </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="header-widget">
-                    <div><div class="widget-label">Deuda en Calle</div><div class="widget-value text-white">$<?php echo number_format($totalDeudaCalle, 0, ',', '.'); ?></div></div>
-                    <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-graph-down-arrow"></i></div>
+                <div class="flex-grow-1" style="min-width: 150px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Estado de Cuenta</label>
+                    <select name="estado" class="form-select form-select-sm border-light-subtle fw-bold" onchange="this.form.submit()">
+                        <option value="">Todos</option>
+                        <option value="deuda" <?php echo (isset($_GET['estado']) && $_GET['estado'] == 'deuda') ? 'selected' : ''; ?>>Con Deuda</option>
+                        <option value="aldia" <?php echo (isset($_GET['estado']) && $_GET['estado'] == 'aldia') ? 'selected' : ''; ?>>Al Día</option>
+                    </select>
                 </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="header-widget">
-                    <div><div class="widget-label">Clientes al Día</div><div class="widget-value text-white"><?php echo $cntAlDia; ?></div></div>
-                    <div class="icon-box bg-success bg-opacity-20 text-white"><i class="bi bi-shield-check"></i></div>
+                <div class="flex-grow-1" style="min-width: 150px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Filtros Especiales</label>
+                    <select name="filtro" class="form-select form-select-sm border-light-subtle fw-bold" onchange="this.form.submit()">
+                        <option value="">Ninguno</option>
+                        <option value="cumple" <?php echo (isset($_GET['filtro']) && $_GET['filtro'] == 'cumple') ? 'selected' : ''; ?>>🎂 Cumpleaños Hoy</option>
+                    </select>
                 </div>
-            </div>
+                <div class="flex-grow-0 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                        <i class="bi bi-funnel-fill"></i>
+                    </button>
+                    <a href="clientes.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; line-height: 20px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill"></i>
+                    </a>
+                    <?php if($es_admin || in_array('crear_cliente', $permisos)): ?>
+                    <button type="button" class="btn btn-success btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;" onclick="abrirModalCrear()">
+                        <i class="bi bi-person-plus-fill me-1"></i> NUEVO
+                    </button>
+                    <?php endif; ?>
+                </div>
+            </form>
         </div>
     </div>
-</div>
 
-<div class="container pb-5 mt-4">
-    <div class="card card-custom shadow-sm border-0 rounded-4 overflow-hidden">
-        <div class="card-header bg-white py-3 border-0">
-            <input type="text" id="buscador" class="form-control bg-light rounded-pill px-4" placeholder="Buscar por nombre o DNI..." onkeyup="filtrarClientes()">
-        </div>
-        <div class="table-responsive px-2">
-            <table class="table table-hover align-middle mb-0">
-                <thead class="bg-light small text-uppercase text-muted">
-                    <tr>
-                        <th class="ps-4">Cliente</th>
-                        <th>DNI / Usuario</th>
-                        <th>Puntos</th>
-                        <th>Estado de Cuenta</th>
-                        <th>Última Compra</th>
-                        <th class="text-end pe-4">Acciones</th>
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="table-responsive px-0">
+            <table class="table align-middle mb-0" style="border-collapse: separate; border-spacing: 0 10px;">
+                <thead>
+                    <tr class="text-muted" style="font-size: 0.7rem; letter-spacing: 1px;">
+                        <th class="ps-4 border-0 text-uppercase">Perfil del Cliente</th>
+                        <th class="border-0 text-uppercase">Acceso y DNI</th>
+                        <th class="border-0 text-uppercase text-center">Puntos</th>
+                        <th class="border-0 text-uppercase">Balance de Cuenta</th>
+                        <th class="border-0 text-uppercase">Último Movimiento</th>
+                        <th class="text-end pe-4 border-0 text-uppercase">Gestión</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white">
@@ -207,43 +259,61 @@ include 'includes/layout_header.php';
                 $deuda = floatval($c['saldo_calculado']);
                 $limite = floatval($c['limite_credito']);
             ?>
-            <tr class="cliente-row">
-                <td class="ps-4">
+            <tr class="cliente-row bg-white shadow-sm" onclick="verResumen(<?php echo $c['id']; ?>)" style="cursor: pointer;">
+                <td class="ps-4 py-3" style="border-radius: 15px 0 0 15px;">
                     <div class="d-flex align-items-center">
-                        <div class="avatar-circle me-3 bg-primary bg-opacity-10 text-primary" style="width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;"><?php echo strtoupper(substr($c['nombre'], 0, 2)); ?></div>
-                        <div><div class="fw-bold text-dark"><?php echo htmlspecialchars($c['nombre']); ?></div><small class="text-muted"><?php echo $c['telefono']; ?></small></div>
-                    </div>
-                </td>
-                <td>
-                    <div class="small fw-bold text-dark"><?php echo $c['dni'] ?: '--'; ?></div>
-                    <span class="badge bg-light text-primary border">@<?php echo $c['usuario'] ?: 'sin_usuario'; ?></span>
-                </td>
-                <td><span class="badge bg-warning bg-opacity-10 text-dark fw-bold"><i class="bi bi-star-fill text-warning me-1"></i> <?php echo number_format($c['puntos_acumulados'], 0); ?></span></td>
-                <td>
-                    <div class="small">
-                        <div class="<?php echo $deuda > 0 ? 'text-danger fw-bold' : 'text-success'; ?>">Debe: $<?php echo number_format($deuda, 0, ',', '.'); ?></div>
-                        <div class="text-muted" style="font-size: 0.7rem;">Límite Fiado: $<?php echo number_format($limite, 0, ',', '.'); ?></div>
-                    </div>
-                </td>
-                <td class="small text-muted"><?php echo $c['ultima_venta_fecha'] ? date('d/m/y', strtotime($c['ultima_venta_fecha'])) : 'Nunca'; ?></td>
-                <td class="text-end pe-4">
-                    <div class="d-flex justify-content-end gap-2">
-                            <?php if($es_admin || in_array('resumen_cliente', $permisos)): ?>
-                            <button type="button" class="btn btn-sm btn-light text-info rounded-circle" onclick="verResumen(<?php echo $c['id']; ?>)"><i class="bi bi-eye"></i></button>
-                            <?php endif; ?>
-                            
-                            <?php if($es_admin || in_array('cuenta_cliente', $permisos)): ?>
-                            <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" class="btn btn-sm btn-light text-primary rounded-circle"><i class="bi bi-wallet2"></i></a>
-                            <?php endif; ?>
-                            
-                            <?php if($es_admin || in_array('editar_cliente', $permisos)): ?>
-                            <button type="button" class="btn btn-sm btn-light text-warning rounded-circle" onclick="editar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
-                            <?php endif; ?>
-                            
-                            <?php if($es_admin || in_array('eliminar_cliente', $permisos)): ?>
-                            <button type="button" class="btn btn-sm btn-light text-danger rounded-circle" onclick="borrarCliente(<?php echo $c['id']; ?>)"><i class="bi bi-trash"></i></button>
-                            <?php endif; ?>
+                        <div class="avatar-wrapper me-3">
+                            <div class="bg-primary text-white d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width:48px; height:48px; border-radius:14px; font-size: 1.1rem;">
+                                <?php echo strtoupper(substr($c['nombre'], 0, 1) . substr(strrchr($c['nombre'], " "), 1, 1)); ?>
+                            </div>
+                            <div class="status-dot <?php echo $deuda > 0.1 ? 'bg-danger' : 'bg-success'; ?>"></div>
                         </div>
+                        <div>
+                            <div class="fw-bold text-dark mb-0" style="font-size: 0.95rem;"><?php echo htmlspecialchars($c['nombre']); ?></div>
+                            <div class="text-muted small"><i class="bi bi-whatsapp me-1"></i><?php echo $c['telefono'] ?: 'Sin teléfono'; ?></div>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="d-flex flex-column">
+                        <span class="fw-bold text-secondary" style="font-size: 0.8rem;"><?php echo $c['dni'] ?: '---'; ?></span>
+                        <span class="text-primary small fw-medium">@<?php echo $c['usuario'] ?: 'invitado'; ?></span>
+                    </div>
+                </td>
+                <td class="text-center">
+                    <div class="d-inline-block px-3 py-1 rounded-pill bg-warning bg-opacity-10 text-warning-dark fw-bold" style="font-size: 0.85rem;">
+                        <i class="bi bi-gem me-1"></i><?php echo number_format($c['puntos_acumulados'], 0); ?>
+                    </div>
+                </td>
+                <td>
+                    <div class="p-2 rounded-3 <?php echo $deuda > 0.1 ? 'bg-danger bg-opacity-10' : 'bg-success bg-opacity-10'; ?>" style="max-width: 140px;">
+                        <div class="<?php echo $deuda > 0.1 ? 'text-danger' : 'text-success'; ?> fw-black mb-0" style="font-size: 1rem;">
+                            $<?php echo number_format($deuda, 2, ',', '.'); ?>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.6rem; text-transform: uppercase;">Crédito: $<?php echo number_format($limite, 0); ?></div>
+                    </div>
+                </td>
+                <td>
+                    <div class="text-dark small fw-bold"><i class="bi bi-calendar3 me-1 text-muted"></i><?php echo $c['ultima_venta_fecha'] ? date('d M, Y', strtotime($c['ultima_venta_fecha'])) : 'Sin compras'; ?></div>
+                </td>
+                <td class="text-end pe-4" style="border-radius: 0 15px 15px 0;">
+                    <div class="d-flex justify-content-end gap-2">
+                        <?php if($es_admin || in_array('resumen_cliente', $permisos)): ?>
+                        <button class="btn-action-custom text-info" onclick="verResumen(<?php echo $c['id']; ?>)" title="Perfil"><i class="bi bi-person-badge-fill"></i></button>
+                        <?php endif; ?>
+
+                        <?php if($es_admin || in_array('cuenta_cliente', $permisos)): ?>
+                        <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" class="btn-action-custom text-primary" title="Cuenta"><i class="bi bi-wallet2"></i></a>
+                        <?php endif; ?>
+
+                        <?php if($es_admin || in_array('editar_cliente', $permisos)): ?>
+                        <button class="btn-action-custom text-warning" onclick="editar(<?php echo $c['id']; ?>)" title="Editar"><i class="bi bi-pencil-square"></i></button>
+                        <?php endif; ?>
+
+                        <?php if($es_admin || in_array('eliminar_cliente', $permisos)): ?>
+                        <button class="btn-action-custom text-danger" onclick="borrarCliente(<?php echo $c['id']; ?>)" title="Eliminar"><i class="bi bi-trash3-fill"></i></button>
+                        <?php endif; ?>
+                    </div>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -277,16 +347,73 @@ include 'includes/layout_header.php';
     </form></div>
 </div></div></div>
 
-<div class="modal fade" id="modalResumen" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow-lg rounded-4">
-    <div class="modal-header bg-primary text-white border-0 py-3"><h5 class="modal-title fw-bold">Resumen de Cuenta</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body text-center p-4">
-        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width:80px;height:80px;font-size:2rem;font-weight:bold;color:#102A57;" id="modal-avatar-res"></div>
-        <h4 class="fw-bold mb-0" id="modal-nombre"></h4><p class="text-muted" id="modal-dni"></p><hr>
-        <div class="row g-3">
-            <div class="col-6"><div class="p-3 bg-light rounded"><div class="small text-muted">Deuda</div><div class="h5 fw-bold text-danger mb-0" id="modal-deuda"></div></div></div>
-            <div class="col-6"><div class="p-3 bg-light rounded"><div class="small text-muted">Puntos</div><div class="h5 fw-bold text-warning mb-0" id="modal-puntos"></div></div></div>
+<div class="modal fade" id="modalResumen" tabindex="-1"><div class="modal-dialog modal-dialog-centered modal-md"><div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+    <div class="modal-header bg-primary text-white border-0 py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-person-badge me-2"></i>Perfil del Cliente</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body p-0">
+        <div class="text-center py-4 bg-light border-bottom">
+            <div class="bg-white shadow-sm d-inline-flex align-items-center justify-content-center mb-2" style="width:90px; height:90px; border-radius:24px; font-size:2.2rem; font-weight:900; color:#102A57; border: 3px solid #fff;" id="modal-avatar-res"></div>
+            <h4 class="fw-bold mb-0" id="modal-nombre"></h4>
+            <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill px-3" id="modal-user"></span>
         </div>
-        <div class="d-grid mt-4"><a href="#" id="btn-ir-cuenta" class="btn btn-primary fw-bold shadow py-2 rounded-pill">VER CUENTA CORRIENTE</a></div>
+        
+        <div class="p-4">
+            <div class="row g-3 mb-4 text-center">
+                <div class="col-6">
+                    <div class="p-3 rounded-4 bg-danger bg-opacity-10 border border-danger border-opacity-10">
+                        <div class="small text-danger fw-bold text-uppercase" style="font-size:0.65rem;">Saldo Deudor</div>
+                        <div class="h4 fw-black text-danger mb-0" id="modal-deuda"></div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-3 rounded-4 bg-warning bg-opacity-10 border border-warning border-opacity-10">
+                        <div class="small text-warning-dark fw-bold text-uppercase" style="font-size:0.65rem;">Puntos Bonus</div>
+                        <div class="h4 fw-black text-warning-dark mb-0" id="modal-puntos"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-6">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">Identificación</label>
+                    <div class="fw-bold text-dark"><i class="bi bi-card-heading me-2 text-primary"></i><span id="modal-dni"></span></div>
+                </div>
+                <div class="col-6">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">WhatsApp</label>
+                    <a href="#" id="modal-tel-link" target="_blank" class="text-decoration-none">
+                        <div class="fw-bold text-dark"><i class="bi bi-whatsapp me-2 text-success"></i><span id="modal-tel"></span></div>
+                    </a>
+                </div>
+                <div class="col-12">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">Correo Electrónico</label>
+                    <a href="#" id="modal-email-link" class="text-decoration-none">
+                        <div class="fw-bold text-dark"><i class="bi bi-envelope-at me-2 text-primary"></i><span id="modal-email"></span></div>
+                    </a>
+                </div>
+                <div class="col-12">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">Dirección Física</label>
+                    <a href="#" id="modal-dir-link" target="_blank" class="text-decoration-none">
+                        <div class="fw-bold text-dark"><i class="bi bi-geo-alt me-2 text-danger"></i><span id="modal-dir"></span></div>
+                    </a>
+                </div>
+                <div class="col-6">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">Cumpleaños</label>
+                    <div class="fw-bold text-dark"><i class="bi bi-cake2 me-2 text-info"></i><span id="modal-nac"></span></div>
+                </div>
+                <div class="col-6 text-end">
+                    <label class="text-muted small fw-bold text-uppercase d-block mb-1" style="font-size:0.6rem;">Última Compra</label>
+                    <div class="fw-bold text-dark" id="modal-ultima"></div>
+                </div>
+            </div>
+
+            <div class="d-grid mt-4 pt-3 border-top">
+                <a href="#" id="btn-ir-cuenta" class="btn btn-primary fw-bold shadow-sm py-3 rounded-4">
+                    <i class="bi bi-wallet2 me-2"></i>GESTIONAR CUENTA CORRIENTE
+                </a>
+            </div>
+        </div>
     </div>
 </div></div></div>
 
@@ -305,7 +432,49 @@ include 'includes/layout_header.php';
         phoneInput.setNumber(d.telefono || ''); $('#titulo-modal').text("Editar Cliente"); $('#modalGestionCliente').modal('show');
     }
     function verResumen(id) { 
-        var d = clientesDB[id]; $('#modal-nombre').text(d.nombre); $('#modal-dni').text('DNI: ' + d.dni); $('#modal-avatar-res').text(d.nombre.substring(0,2).toUpperCase()); $('#modal-deuda').text('$' + Number(d.deuda).toLocaleString('es-AR')); $('#modal-puntos').text(d.puntos); $('#btn-ir-cuenta').attr('href', 'cuenta_cliente.php?id=' + d.id); $('#modalResumen').modal('show');
+        var d = clientesDB[id]; 
+        $('#modal-nombre').text(d.nombre); 
+        $('#modal-dni').text(d.dni || '---'); 
+        $('#modal-avatar-res').text(d.nombre.substring(0,2).toUpperCase()); 
+        $('#modal-deuda').text('$' + Number(d.deuda).toLocaleString('es-AR', {minimumFractionDigits: 2})); 
+        $('#modal-puntos').text(Number(d.puntos).toLocaleString('es-AR')); 
+        
+        $('#modal-user').text('@' + (d.usuario || 'invitado'));
+        
+        // Lógica WhatsApp
+        let tel = d.telefono || '';
+        $('#modal-tel').text(tel || 'No registrado');
+        if(tel) {
+            let telLimpio = tel.replace(/\D/g, ''); // Deja solo números
+            $('#modal-tel-link').attr('href', 'https://wa.me/' + telLimpio).show();
+        } else { $('#modal-tel-link').hide(); }
+
+        // Lógica Email
+        let email = d.email || '';
+        $('#modal-email').text(email || 'Sin correo');
+        if(email) {
+            $('#modal-email-link').attr('href', 'mailto:' + email).show();
+        } else { $('#modal-email-link').hide(); }
+
+        // Lógica Google Maps
+        let dir = d.direccion || '';
+        $('#modal-dir').text(dir || 'Sin dirección');
+        if(dir) {
+            $('#modal-dir-link').attr('href', 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(dir)).show();
+        } else { $('#modal-dir-link').hide(); }
+        
+        // Formatear Fecha Nacimiento
+        if(d.fecha_nacimiento && d.fecha_nacimiento !== '0000-00-00') {
+            let fecha = new Date(d.fecha_nacimiento + 'T00:00:00');
+            $('#modal-nac').text(fecha.toLocaleDateString('es-AR', {day: '2-digit', month: 'long'}));
+        } else {
+            $('#modal-nac').text('No registrada');
+        }
+
+        $('#modal-ultima').text(d.ultima_venta || 'Sin actividad');
+        
+        $('#btn-ir-cuenta').attr('href', 'cuenta_cliente.php?id=' + d.id); 
+        $('#modalResumen').modal('show');
     }
     $('#formCliente').submit(function(){ $('#telefono_final').val(phoneInput.getNumber()); });
     function filtrarClientes() { var val = $('#buscador').val().toUpperCase(); $('.cliente-row').each(function(){ $(this).toggle($(this).text().toUpperCase().indexOf(val) > -1); }); }
@@ -317,5 +486,28 @@ include 'includes/layout_header.php';
             if(parts.length >= 2) $('#usuario_form').val((parts[0].charAt(0) + parts[parts.length - 1]).replace(/[^a-z0-9]/g, ""));
         }
     });
+    function mandarMailReporteClientes() {
+        Swal.fire({ 
+            title: 'Enviar Reporte', 
+            text: 'Ingrese el correo electrónico destino:',
+            input: 'email', 
+            showCancelButton: true,
+            confirmButtonText: 'ENVIAR AHORA',
+            cancelButtonText: 'CANCELAR'
+        }).then((r) => {
+            if(r.isConfirmed && r.value) {
+                Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                const fData = new FormData(); 
+                fData.append('email', r.value);
+                fData.append('filtros', '<?php echo $query_filtros; ?>');
+                
+                fetch('acciones/enviar_email_reporte_clientes.php', { method: 'POST', body: fData })
+                .then(res => res.json())
+                .then(d => { 
+                    Swal.fire(d.status === 'success' ? 'Reporte Enviado' : 'Error al enviar', d.msg || '', d.status); 
+                });
+            }
+        });
+    }
 </script>
 <?php include 'includes/layout_footer.php'; ?>
