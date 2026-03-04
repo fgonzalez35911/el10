@@ -1,5 +1,5 @@
 <?php
-// acciones/enviar_email_gasto.php - DISEÑO PREMIUM CLONADO DE PROVEEDORES
+// acciones/enviar_email_inflacion.php - DISEÑO PREMIUM ADAPTADO DE GASTOS
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
@@ -13,25 +13,28 @@ session_start();
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['usuario_id'])) { 
-    die(json_encode(['status' => 'error', 'msg' => 'Sesión expirada'])); 
+    die(json_encode(['status' => 'error', 'msg' => 'Sesion expirada'])); 
 }
 
-$id_gasto = $_POST['id'] ?? 0;
+$id_inf = $_POST['id'] ?? 0;
 $email_destino = $_POST['email'] ?? '';
 
-if (!$id_gasto || empty($email_destino)) {
+if (!$id_inf || empty($email_destino)) {
     die(json_encode(['status' => 'error', 'msg' => 'Faltan datos obligatorios.']));
 }
 
 try {
-    // 1. OBTENER DATOS DEL GASTO (Operador que registró el gasto)
-    $stmt = $conexion->prepare("SELECT g.*, u.usuario as operador FROM gastos g LEFT JOIN usuarios u ON g.id_usuario = u.id WHERE g.id = ?");
-    $stmt->execute([$id_gasto]);
+    // 1. OBTENER DATOS DE LA INFLACIÓN
+    $stmt = $conexion->prepare("SELECT h.*, u.usuario as operador 
+                                 FROM historial_inflacion h 
+                                 LEFT JOIN usuarios u ON h.id_usuario = u.id 
+                                 WHERE h.id = ?");
+    $stmt->execute([$id_inf]);
     $mov = $stmt->fetch(PDO::FETCH_OBJ);
     
-    if (!$mov) throw new Exception('Registro de gasto inexistente.');
+    if (!$mov) throw new Exception('Registro de inflacion inexistente.');
 
-    // 2. OBTENER DATOS DEL DUEÑO PARA LA FIRMA OFICIAL
+    // 2. OBTENER DATOS DEL DUEÑO PARA LA FIRMA OFICIAL (Igual que en Gastos)
     $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
                                  FROM usuarios u 
                                  JOIN roles r ON u.id_rol = r.id 
@@ -41,7 +44,7 @@ try {
 
     $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_OBJ);
 
-    // 2. GENERACIÓN DEL PDF ADJUNTO (Réplica de ticket_gasto_pdf.php)
+    // 3. GENERACIÓN DEL PDF ADJUNTO
     $pdf = new FPDF('P', 'mm', array(80, 210));
     $pdf->AddPage();
     $pdf->SetMargins(4, 4, 4);
@@ -64,36 +67,37 @@ try {
     $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 
     $pdf->SetFont('Courier', 'B', 12);
-    $pdf->Cell(0, 6, utf8_decode('COMPROBANTE GASTO'), 0, 1, 'C');
+    $pdf->Cell(0, 6, utf8_decode('COMPROBANTE INFLACION'), 0, 1, 'C');
     $pdf->SetFont('Courier', '', 9);
     $pdf->Cell(0, 4, "OP: #" . str_pad($mov->id, 6, '0', STR_PAD_LEFT), 0, 1, 'C');
     $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 
     $pdf->Ln(3);
     $pdf->Cell(0, 5, "Fecha: " . date('d/m/Y H:i', strtotime($mov->fecha)), 0, 1, 'L');
-    $pdf->MultiCell(0, 4, "Cat: " . utf8_decode(strtoupper($mov->categoria)), 0, 'L');
-    $pdf->MultiCell(0, 4, "Operador: " . utf8_decode(strtoupper($mov->operador ?? 'ADMIN')), 0, 'L');
+    $pdf->Cell(0, 5, "Grupo: " . utf8_decode(strtoupper($mov->grupo_afectado)), 0, 1, 'L');
+    $pdf->Cell(0, 5, "Operador: " . utf8_decode(strtoupper($mov->operador ?? 'ADMIN')), 0, 1, 'L');
 
     $pdf->Ln(3);
     $pdf->SetFont('Courier', 'B', 9);
-    $pdf->Cell(0, 5, "DETALLE:", 0, 1, 'L');
+    $pdf->Cell(0, 5, "DETALLE DE IMPACTO:", 0, 1, 'L');
     $pdf->SetFont('Courier', '', 8);
-    $pdf->MultiCell(0, 4, utf8_decode($mov->descripcion), 0, 'L');
+    $impacto = (strtoupper($mov->accion) == 'COSTO') ? 'COSTO Y VENTA' : 'SOLO VENTA';
+    $detalle = "Aumento masivo aplicado al grupo " . $mov->grupo_afectado . ". Afectando a " . $mov->cantidad_productos . " productos en su precio de " . $impacto . ".";
+    $pdf->MultiCell(0, 4, utf8_decode($detalle), 0, 'L');
 
     $pdf->Ln(3);
     $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
     $pdf->SetFont('Courier', 'B', 14);
-    $pdf->Cell(30, 8, "TOTAL:", 0, 0, 'L');
-    $pdf->Cell(40, 8, "$" . number_format($mov->monto, 2, ',', '.'), 0, 1, 'R');
+    $pdf->Cell(30, 8, "AUMENTO:", 0, 0, 'L');
+    $pdf->Cell(40, 8, "+" . number_format($mov->porcentaje, 2, ',', '.') . "%", 0, 1, 'R');
     $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 
-    // FIRMA
+    // FIRMA (Misma lógica que Gastos)
     $pdf->Ln(8);
     $y_firma = $pdf->GetY();
     $ruta_firma = "../img/firmas/firma_admin.png";
-    // Prioridad: Si el operador del gasto tiene firma propia, se usa esa.
-    if (isset($mov->id_usuario) && $mov->id_usuario > 0 && file_exists("../img/firmas/usuario_" . $mov->id_usuario . ".png")) {
-        $ruta_firma = "../img/firmas/usuario_" . $mov->id_usuario . ".png";
+    if ($ownerRow && file_exists("../img/firmas/usuario_" . $ownerRow['id'] . ".png")) {
+        $ruta_firma = "../img/firmas/usuario_" . $ownerRow['id'] . ".png";
     }
 
     if (file_exists($ruta_firma)) {
@@ -109,7 +113,7 @@ try {
 
     // QR
     $pdf->Ln(4);
-    $linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_gasto_pdf.php?id=" . $id_gasto;
+    $linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_inflacion_pdf.php?id=" . $id_inf;
     $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
     $y_qr = $pdf->GetY();
     $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');
@@ -119,7 +123,7 @@ try {
 
     $pdf_content = $pdf->Output('S');
 
-    // 3. ENVÍO PHPMailer (Diseño corporativo)
+    // 4. ENVÍO PHPMailer (Diseño corporativo idéntico a Gastos)
     $mail = new PHPMailer(true);
     $mail->isSMTP();
     $mail->Host       = 'smtp.hostinger.com';
@@ -133,23 +137,25 @@ try {
     $mail->setFrom('info@federicogonzalez.net', $conf->nombre_negocio);
     $mail->addAddress($email_destino);
     
-    $mail->addStringAttachment($pdf_content, "Comprobante_Gasto_{$id_gasto}.pdf");
+    $mail->addStringAttachment($pdf_content, "Comprobante_Inflacion_{$id_inf}.pdf");
     $mail->isHTML(true);
-    $mail->Subject = "Comprobante de Gasto - " . $conf->nombre_negocio;
+    $mail->Subject = "Actualización de Precios - " . $conf->nombre_negocio;
 
     $mail->Body = "
-    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #dc3545; border-radius: 10px; overflow: hidden;'>
-        <div style='background: #dc3545; padding: 20px; text-align: center;'>
-            <h2 style='color: white; margin: 0;'>Gasto Operativo Registrado</h2>
+    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #102A57; border-radius: 10px; overflow: hidden;'>
+        <div style='background: #102A57; padding: 20px; text-align: center;'>
+            <h2 style='color: white; margin: 0;'>Ajuste de Precios Registrado</h2>
         </div>
         <div style='padding: 30px; color: #333;'>
-            <p>Se adjunta el comprobante del gasto registrado el " . date('d/m/Y', strtotime($mov->fecha)) . ".</p>
+            <p>Se adjunta el comprobante del ajuste de precios por inflación realizado el " . date('d/m/Y', strtotime($mov->fecha)) . ".</p>
             <table width='100%' style='background: #f4f7fa; padding: 15px; border-radius: 5px; margin: 20px 0;'>
-                <tr><td><strong>Operación Nro:</strong></td><td align='right'>#{$id_gasto}</td></tr>
-                <tr><td><strong>Categoría:</strong></td><td align='right'>{$mov->categoria}</td></tr>
-                <tr><td><strong>Importe:</strong></td><td align='right' style='color:#dc3545;'><strong>$" . number_format($mov->monto, 2, ',', '.') . "</strong></td></tr>
+                <tr><td><strong>Operación Nro:</strong></td><td align='right'>#{$id_inf}</td></tr>
+                <tr><td><strong>Grupo Afectado:</strong></td><td align='right'>{$mov->grupo_afectado}</td></tr>
+                <tr><td><strong>Productos:</strong></td><td align='right'>{$mov->cantidad_productos} ítems</td></tr>
+                <tr><td><strong>Porcentaje:</strong></td><td align='right' style='color:#dc3545;'><strong>+" . number_format($mov->porcentaje, 2, ',', '.') . "%</strong></td></tr>
             </table>
-            <p style='margin-top:30px;'>Saludos cordiales,<br><strong>{$conf->nombre_negocio}</strong></p>
+            <p style='margin-top:30px;'>Este ajuste ha sido validado y aplicado al sistema de inventario.</p>
+            <p>Saludos cordiales,<br><strong>{$conf->nombre_negocio}</strong></p>
         </div>
     </div>";
 
