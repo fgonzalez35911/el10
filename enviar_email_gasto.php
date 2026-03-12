@@ -25,24 +25,20 @@ if (!$id_gasto || empty($email_destino)) {
 
 try {
     // 1. OBTENER DATOS DEL GASTO (Operador que registró el gasto)
-    $stmt = $conexion->prepare("SELECT g.*, u.usuario as operador FROM gastos g LEFT JOIN usuarios u ON g.id_usuario = u.id WHERE g.id = ?");
+    $stmt = $conexion->prepare("SELECT g.*, u.usuario as operador, u.nombre_completo, r.nombre as nombre_rol 
+                                 FROM gastos g 
+                                 LEFT JOIN usuarios u ON g.id_usuario = u.id 
+                                 LEFT JOIN roles r ON u.id_rol = r.id 
+                                 WHERE g.id = ?");
     $stmt->execute([$id_gasto]);
     $mov = $stmt->fetch(PDO::FETCH_OBJ);
     
     if (!$mov) throw new Exception('Registro de gasto inexistente.');
 
-    // 2. OBTENER DATOS DEL DUEÑO PARA LA FIRMA OFICIAL
-    $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
-                                 FROM usuarios u 
-                                 JOIN roles r ON u.id_rol = r.id 
-                                 WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
-    $ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
-    $firmante = $ownerRow ? $ownerRow : ['nombre_completo' => 'RESPONSABLE', 'nombre_rol' => 'AUTORIZADO', 'id' => 0];
-
     $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_OBJ);
 
     // 2. GENERACIÓN DEL PDF ADJUNTO (Réplica de ticket_gasto_pdf.php)
-    $pdf = new FPDF('P', 'mm', array(80, 210));
+    $pdf = new FPDF('P', 'mm', array(80, 240));
     $pdf->AddPage();
     $pdf->SetMargins(4, 4, 4);
     $pdf->SetAutoPageBreak(true, 4);
@@ -90,26 +86,31 @@ try {
     // FIRMA
     $pdf->Ln(8);
     $y_firma = $pdf->GetY();
-    $ruta_firma = "../img/firmas/firma_admin.png";
-    // Prioridad: Si el operador del gasto tiene firma propia, se usa esa.
+    $ruta_firma = "";
+    
     if (isset($mov->id_usuario) && $mov->id_usuario > 0 && file_exists("../img/firmas/usuario_" . $mov->id_usuario . ".png")) {
         $ruta_firma = "../img/firmas/usuario_" . $mov->id_usuario . ".png";
     }
 
-    if (file_exists($ruta_firma)) {
+    if (!empty($ruta_firma) && file_exists($ruta_firma)) {
         $pdf->Image($ruta_firma, 25, $y_firma, 30);
         $pdf->SetY($y_firma + 12);
-    } else { $pdf->SetY($y_firma + 10); }
+    } else { 
+        $pdf->SetY($y_firma + 10); 
+    }
 
     $pdf->SetFont('Courier', '', 8);
     $pdf->Cell(0, 4, "________________________", 0, 1, 'C');
     $pdf->SetFont('Courier', 'B', 8);
-    $aclaracion = strtoupper($firmante['nombre_completo']) . " | " . strtoupper($firmante['nombre_rol']);
+    $n_op = $mov->nombre_completo ? $mov->nombre_completo : ($mov->operador ?? 'SISTEMA');
+    $r_op = $mov->nombre_rol ? $mov->nombre_rol : "OPERADOR";
+    $aclaracion = strtoupper($n_op) . " | " . strtoupper($r_op);
     $pdf->Cell(0, 4, utf8_decode($aclaracion), 0, 1, 'C');
 
     // QR
-    $pdf->Ln(4);
-    $linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_gasto_pdf.php?id=" . $id_gasto;
+    $pdf->Ln(2);
+    $protocolo = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+    $linkPdfPublico = $protocolo . "://" . str_replace("acciones/", "", $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . "/ticket_gasto_pdf.php?id=" . $id_gasto;
     $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
     $y_qr = $pdf->GetY();
     $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');

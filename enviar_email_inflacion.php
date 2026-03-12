@@ -113,7 +113,8 @@ try {
 
     // QR
     $pdf->Ln(4);
-    $linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_inflacion_pdf.php?id=" . $id_inf;
+    $protocolo = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http");
+    $linkPdfPublico = $protocolo . "://" . $_SERVER['HTTP_HOST'] . "/ticket_inflacion_pdf.php?id=" . $id_inf . "&publico=1";
     $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
     $y_qr = $pdf->GetY();
     $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');
