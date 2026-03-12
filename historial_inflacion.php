@@ -7,18 +7,22 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) { header("Location:
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
 
-// Lógica de Fechas (2 meses atrás por defecto)
+// --- FILTROS UNIFICADOS ---
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $f_usu = $_GET['id_usuario'] ?? '';
+$buscar = trim($_GET['buscar'] ?? '');
 
-// Filtros
-$cond = ["h.fecha >= ?", "h.fecha <= ?"];
-$params = [$desde . " 00:00:00", $hasta . " 23:59:59"];
+$cond = ["DATE(h.fecha) >= ?", "DATE(h.fecha) <= ?"];
+$params = [$desde, $hasta];
 
 if($f_usu !== '') { 
     $cond[] = "h.id_usuario = ?"; 
     $params[] = $f_usu; 
+}
+if(!empty($buscar)) { 
+    $cond[] = "(h.grupo_afectado LIKE ? OR h.id = ?)"; 
+    array_push($params, "%$buscar%", intval($buscar)); 
 }
 
 $sql = "SELECT h.*, u.usuario, u.nombre_completo, r.nombre as nombre_rol 
@@ -35,6 +39,7 @@ $historial = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Cálculos para Widgets
 $total_registros = count($historial);
 $total_productos_afectados = ($total_registros > 0) ? array_sum(array_column($historial, 'cantidad_productos')) : 0;
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -42,31 +47,27 @@ $total_productos_afectados = ($total_registros > 0) ? array_sum(array_column($hi
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Historial de Inflación</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        @media (max-width: 768px) {
+            .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.4rem 0.2rem !important; font-size: 0.75rem !important; white-space: nowrap; }
+            .tabla-movil-ajustada .badge { font-size: 0.65rem !important; }
+            .tabla-movil-ajustada .small { font-size: 0.65rem !important; }
+            .tabla-movil-ajustada .fw-bold { font-size: 0.75rem !important; }
+        }
+    </style>
 </head>
 <body class="bg-light">
     <?php include 'includes/layout_header.php'; ?>
     
     <?php
-// --- DEFINICIÓN DEL BANNER DINÁMICO (BOTONES PEQUEÑOS) ---
+// --- DEFINICIÓN DEL BANNER DINÁMICO ---
 $titulo = "Historial de Inflación";
 $subtitulo = "Registro de aumentos masivos aplicados.";
 $icono_bg = "bi-clock-history";
 
 $botones = [
-    [
-        'texto' => 'VOLVER', 
-        'link' => "precios_masivos.php", 
-        'class' => 'btn btn-light btn-sm fw-bold rounded-pill shadow-sm border',
-        'style' => 'padding: 2px 10px; font-size: 10px; letter-spacing: 0.5px;'
-    ],
-    [
-        'texto' => 'PDF', 
-        'link' => "reporte_inflacion.php?" . $_SERVER['QUERY_STRING'], 
-        'icono' => 'bi-file-earmark-pdf-fill', 
-        'class' => 'btn btn-danger btn-sm fw-bold rounded-pill shadow-sm', 
-        'target' => '_blank',
-        'style' => 'padding: 2px 10px; font-size: 10px; letter-spacing: 0.5px;'
-    ]
+    ['texto' => 'Reporte PDF', 'link' => "reporte_inflacion.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
@@ -78,10 +79,32 @@ $widgets = [
 include 'includes/componente_banner.php'; 
 ?>
 
-    <div class="container mt-n4 pb-5" style="position: relative; z-index: 20;">
+    <div class="container-fluid container-md mt-n4 pb-5 px-2 px-md-3" style="position: relative; z-index: 20;">
+        
+        <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+            <div class="card-body p-2 p-md-3">
+                <form method="GET" class="row g-2 align-items-center mb-0">
+                    <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                    <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                    <input type="hidden" name="id_usuario" value="<?php echo htmlspecialchars($f_usu); ?>">
+                    <div class="col-md-8 col-12 text-center text-md-start">
+                        <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
+                        <p class="small mb-0 opacity-75 d-none d-md-block">Busca un registro por nombre del Proveedor.</p>
+                    </div>
+                    <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                        <div class="input-group input-group-sm">
+                            <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Buscar Proveedor..." value="<?php echo htmlspecialchars($buscar); ?>">
+                            <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <div class="card border-0 shadow-sm rounded-4 mb-4">
-            <div class="card-body p-3">
+            <div class="card-body p-2 p-md-3">
                 <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                    <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
                     <div class="flex-grow-1" style="min-width: 120px;">
                         <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
                         <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
@@ -113,15 +136,19 @@ include 'includes/componente_banner.php';
             </div>
         </div>
 
+        <div class="alert py-2 small mb-3 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+            <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un registro para ver el comprobante
+        </div>
+
         <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
             <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+                <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
                     <thead class="bg-light text-muted small text-uppercase">
                         <tr>
-                            <th class="ps-4">Fecha</th>
+                            <th class="ps-4">Fecha / Hora</th>
                             <th>Grupo Afectado</th>
-                            <th>Cant. Prod.</th>
-                            <th>Impacto</th>
+                            <th class="d-none d-md-table-cell">Productos</th>
+                            <th class="d-none d-md-table-cell">Impacto</th>
                             <th class="text-end pe-4">Aumento</th>
                         </tr>
                     </thead>
@@ -131,20 +158,24 @@ include 'includes/componente_banner.php';
                         <?php else: ?>
                             <?php foreach($historial as $h): 
                             $jsonData = htmlspecialchars(json_encode($h), ENT_QUOTES, 'UTF-8');
+                            $es_costo = (strtoupper($h['accion']) == 'COSTO');
+                            $badge_impacto = '<span class="badge ' . ($es_costo ? 'bg-danger' : 'bg-primary') . '">' . ($es_costo ? 'COSTO Y VENTA' : 'SOLO VENTA') . '</span>';
                         ?>
                         <tr style="cursor:pointer;" onclick="verInflacion(<?php echo $jsonData; ?>)">
                                 <td class="ps-4 py-3">
                                     <div class="fw-bold text-dark"><?php echo date('d/m/Y', strtotime($h['fecha'])); ?></div>
-                                    <small class="text-muted"><?php echo date('H:i', strtotime($h['fecha'])); ?> hs - <i class="bi bi-person-fill"></i> <?php echo htmlspecialchars($h['usuario'] ?? 'Sistema'); ?></small>
+                                    <small class="text-muted"><?php echo date('H:i', strtotime($h['fecha'])); ?> hs</small>
                                 </td>
-                                <td><span class="badge bg-secondary"><?php echo strtoupper(htmlspecialchars($h['grupo_afectado'])); ?></span></td>
-                                <td><span class="badge bg-light text-dark border"><?php echo $h['cantidad_productos']; ?> ítems</span></td>
                                 <td>
-                                    <?php 
-                                        $es_costo = (strtoupper($h['accion']) == 'COSTO');
-                                        echo '<span class="badge ' . ($es_costo ? 'bg-danger' : 'bg-primary') . '">' . ($es_costo ? 'COSTO Y VENTA' : 'SOLO VENTA') . '</span>';
-                                    ?>
+                                    <div class="fw-bold text-dark"><?php echo strtoupper(htmlspecialchars($h['grupo_afectado'])); ?></div>
+                                    <div class="d-block d-md-none mt-1 mb-1">
+                                        <?php echo $badge_impacto; ?> 
+                                        <span class="badge bg-light text-dark border ms-1"><?php echo $h['cantidad_productos']; ?> ítems</span>
+                                    </div>
+                                    <small class="text-muted"><i class="bi bi-person-circle"></i> <?php echo htmlspecialchars($h['usuario'] ?? 'Sistema'); ?></small>
                                 </td>
+                                <td class="d-none d-md-table-cell"><span class="badge bg-light text-dark border"><?php echo $h['cantidad_productos']; ?> ítems</span></td>
+                                <td class="d-none d-md-table-cell"><?php echo $badge_impacto; ?></td>
                                 <td class="text-end pe-4 fw-bold text-danger fs-5">+<?php echo number_format($h['porcentaje'], 2); ?>%</td>
                             </tr>
                             <?php endforeach; ?>

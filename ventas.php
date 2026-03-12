@@ -914,10 +914,13 @@ try {
         });
 
         // =========================================================================
-// NUEVO MOTOR DE ESCANEO IA (OCR.SPACE + DICCIONARIO)
+// NUEVO MOTOR DE ESCANEO IA (MULTI-CAPTURA + DICCIONARIO)
 // =========================================================================
-function abrirEscanerTransferencia() {
-    // 1. Crear el input de cámara (igual que en tu index.php)
+let fotosEscaner = []; // Memoria temporal para acumular capturas
+
+function abrirEscanerTransferencia(esSuma = false) {
+    if (!esSuma) fotosEscaner = []; // Si es un escaneo nuevo, vaciamos la memoria
+    
     let input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
@@ -926,55 +929,73 @@ function abrirEscanerTransferencia() {
     input.onchange = e => {
         let file = e.target.files[0];
         if (file) {
-            let reader = new FileReader();
-            reader.onload = event => {
-                let img = new Image();
-                img.src = event.target.result;
-                img.onload = () => {
-                    let canvas = document.createElement('canvas');
-                    let ctx = canvas.getContext('2d');
-                    // Achicamos un poco para que no explote la memoria
-                    let scale = 1000 / Math.max(img.width, img.height);
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    let fotoBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            let img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(img.src); 
+                let canvas = document.createElement('canvas');
+                let ctx = canvas.getContext('2d');
+                
+                let scale = 1280 / Math.max(img.width, img.height);
+                if (scale > 1) scale = 1; 
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                
+                let fotoBase64 = canvas.toDataURL('image/jpeg', 0.80);
+                fotosEscaner.push(fotoBase64); // Guardamos la foto en el paquete
 
-                    // 2. Mostrar el Preview con SweetAlert (Simulando tus botones verde/rojo)
-                    Swal.fire({
-                        title: '¿La foto está nítida?',
-                        imageUrl: fotoBase64,
-                        imageWidth: 300,
-                        showCancelButton: true,
-                        confirmButtonText: 'Aceptar y Escanear',
-                        cancelButtonText: 'Reintentar',
-                        confirmButtonColor: '#28a745',
-                        cancelButtonColor: '#dc3545',
-                    }).then((result) => {
-                        if (result.isConfirmed) {
-                            Swal.fire({ title: 'Subiendo y escaneando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
-                            
-                            // 3. Enviar a guardar (igual que tu index.php)
-                            $.post('acciones/procesar_ocr_transferencia.php', { imagen_base64: fotoBase64 }, function(res) {
+                Swal.fire({
+                    title: fotosEscaner.length > 1 ? '¡Parte agregada!' : '¿La foto está nítida?',
+                    text: `Llevás ${fotosEscaner.length} captura(s) lista(s)`,
+                    imageUrl: fotoBase64,
+                    imageWidth: 300,
+                    showCancelButton: true,
+                    showDenyButton: true,
+                    confirmButtonText: '<i class="bi bi-check-lg"></i> Listo, Analizar',
+                    denyButtonText: '<i class="bi bi-plus-circle"></i> Sumar otra parte',
+                    cancelButtonText: '<i class="bi bi-arrow-repeat"></i> Reintentar',
+                    confirmButtonColor: '#28a745',
+                    denyButtonColor: '#17a2b8',
+                    cancelButtonColor: '#dc3545',
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Analizando captura(s)...', html: 'Extrayendo datos con IA<br><i>Esto puede demorar unos segundos</i>', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+                        
+                        $.ajax({
+                            url: 'acciones/procesar_ocr_transferencia.php',
+                            type: 'POST',
+                            data: { imagenes_base64: fotosEscaner }, // Mandamos el paquete entero
+                            timeout: 25000, // Le damos más tiempo por si mandó 2 o 3 fotos
+                            success: function(res) {
                                 if (res.trim() === "OK") {
-                                    Swal.fire('¡Listo!', 'Transferencia registrada', 'success').then(() => {
-                                        // Opcional: redireccionar o cerrar
+                                    Swal.fire('¡Listo!', 'Transferencia registrada.', 'success').then(() => {
                                         ejecutarVentaFinalEnBD();
                                     });
                                 } else {
-                                    Swal.fire('Error', res, 'error');
+                                    Swal.fire('Error de IA', res || 'Respuesta vacía del servidor', 'error');
                                 }
-                            });
-                        } else {
-                            abrirEscanerTransferencia(); // Reintentar
-                        }
-                    });
-                };
+                            },
+                            error: function(jqXHR, textStatus) {
+                                if (textStatus === 'timeout') {
+                                    Swal.fire('Aviso', 'La IA tardó demasiado en responder. Volvé a intentarlo.', 'warning');
+                                } else {
+                                    Swal.fire('Error', 'Se cortó la conexión con el servidor. Intentá de nuevo.', 'error');
+                                }
+                            }
+                        });
+                    } else if (result.isDenied) {
+                        abrirEscanerTransferencia(true); // Abre la cámara pero NO borra la memoria
+                    } else {
+                        fotosEscaner.pop(); // Borra la última foto mala
+                        abrirEscanerTransferencia(true); 
+                    }
+                });
             };
-            reader.readAsDataURL(file);
+            img.src = URL.createObjectURL(file); 
         }
     };
     input.click();
+
 }
         function ejecutarVentaFinalEnBD() {
             let total = parseFloat($('#total-venta').attr('data-total-final'));

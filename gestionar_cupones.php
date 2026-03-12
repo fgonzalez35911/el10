@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['action'])) {
     if ($stmt->fetchColumn() > 0) {
         $mensaje = '<div class="alert alert-danger shadow-sm border-0"><i class="bi bi-x-circle-fill me-2"></i> Código duplicado.</div>';
     } else {
-        $sql = "INSERT INTO cupones (codigo, descuento_porcentaje, fecha_limite, cantidad_limite, usos_actuales, activo) VALUES (?, ?, ?, ?, 0, 1)";
-        $conexion->prepare($sql)->execute([$codigo, $porcentaje, $vencimiento, $limite]);
+        $sql = "INSERT INTO cupones (codigo, descuento_porcentaje, fecha_limite, cantidad_limite, usos_actuales, activo, id_usuario) VALUES (?, ?, ?, ?, 0, 1, ?)";
+        $conexion->prepare($sql)->execute([$codigo, $porcentaje, $vencimiento, $limite, $_SESSION['usuario_id']]);
         try {
             $txt_limite = ($limite > 0) ? $limite . " usos" : "Ilimitado";
             $detalles_audit = "Nuevo cupón: " . $codigo . " (" . $porcentaje . "% OFF). Límite: " . $txt_limite . ". Vence: " . date('d/m/Y', strtotime($vencimiento));
@@ -68,13 +68,38 @@ if (isset($_POST['action']) && $_POST['action'] == 'edit') {
     header("Location: gestionar_cupones.php?msg=edit"); exit;
 }
 
-// FILTROS DESDE / HASTA
+// FILTROS VANGUARD PRO
 $desde = $_GET['desde'] ?? date('Y-01-01');
 $hasta = $_GET['hasta'] ?? date('Y-12-31', strtotime('+1 year'));
+$f_usu = $_GET['id_usuario'] ?? '';
+$buscar = trim($_GET['buscar'] ?? '');
 
-$stmtCupones = $conexion->prepare("SELECT * FROM cupones WHERE DATE(fecha_limite) >= ? AND DATE(fecha_limite) <= ? ORDER BY fecha_limite DESC");
-$stmtCupones->execute([$desde, $hasta]);
-$cupones = $stmtCupones->fetchAll(PDO::FETCH_ASSOC);
+// 🛑 PARCHE AUTOMÁTICO VANGUARD PRO: Asigna los cupones huérfanos al Admin (ID 1)
+$conexion->query("UPDATE cupones SET id_usuario = 1 WHERE id_usuario IS NULL OR id_usuario = 0");
+
+$condiciones = ["DATE(c.fecha_limite) >= ?", "DATE(c.fecha_limite) <= ?"];
+$parametros = [$desde, $hasta];
+
+if (!empty($buscar)) {
+    $condiciones[] = "c.codigo LIKE ?";
+    $parametros[] = "%$buscar%";
+}
+
+if ($f_usu !== '') {
+    $condiciones[] = "c.id_usuario = ?";
+    $parametros[] = $f_usu;
+}
+
+// CONSULTA UNIFICADA
+$sql = "SELECT c.*, u.usuario as creador 
+        FROM cupones c 
+        LEFT JOIN usuarios u ON c.id_usuario = u.id 
+        WHERE " . implode(" AND ", $condiciones) . " 
+        ORDER BY c.fecha_limite DESC";
+
+$stmtCupones = $conexion->prepare($sql);
+$stmtCupones->execute($parametros);
+$cupones = $stmtCupones->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $color_sistema = '#102A57';
 try {
@@ -105,61 +130,94 @@ foreach($cupones as $c) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        @media (max-width: 768px) {
+            .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.5rem 0.3rem !important; font-size: 0.75rem !important; }
+            .tabla-movil-ajustada .fw-bold { font-size: 0.85rem !important; }
+            .tabla-movil-ajustada .badge { font-size: 0.65rem !important; }
+        }
+    </style>
 </head>
 <body class="bg-light">
     
     <?php include 'includes/layout_header.php'; ?> 
 
-    <div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
-        <i class="bi bi-ticket-perforated bg-icon-large" style="z-index: 0;"></i>
-        <div class="container position-relative" style="z-index: 2;">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h2 class="font-cancha mb-0 text-white">Marketing & Cupones</h2>
-                    <p class="opacity-75 mb-0 text-white small">Gestioná descuentos y promociones para fidelizar clientes.</p>
-                </div>
-                <a href="reporte_cupones.php?desde=<?php echo $desde; ?>&hasta=<?php echo $hasta; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
-                </a>
-            </div>
+    <?php
+    // --- DEFINICIÓN DEL BANNER DINÁMICO ESTANDARIZADO ---
+    $titulo = "Marketing & Cupones";
+    $subtitulo = "Gestioná descuentos y promociones para fidelizar clientes.";
+    $icono_bg = "bi-ticket-perforated";
 
-            <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">
-                <form method="GET" class="d-flex align-items-center gap-3 mb-0">
-                    <div class="d-flex align-items-center">
-                        <span class="small fw-bold text-white text-uppercase me-2">Desde Venc.:</span>
-                        <input type="date" name="desde" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $desde; ?>" required style="max-width: 150px;">
+    $query_filtros = "desde=$desde&hasta=$hasta&id_usuario=$f_usu&buscar=$buscar";
+    $botones = [
+        ['texto' => 'Reporte PDF', 'link' => "reporte_cupones.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
+    ];
+
+    $widgets = [
+        ['label' => 'Cupones Activos', 'valor' => $activos, 'icono' => 'bi-ticket-detailed', 'icon_bg' => 'bg-success bg-opacity-20'],
+        ['label' => 'Usos Totales', 'valor' => $total_usos, 'icono' => 'bi-people', 'icon_bg' => 'bg-white bg-opacity-10'],
+        ['label' => 'Vencen Pronto', 'valor' => $por_vencer, 'icono' => 'bi-calendar-x', 'border' => 'border-warning', 'icon_bg' => 'bg-warning bg-opacity-20']
+    ];
+
+    include 'includes/componente_banner.php'; 
+    ?>
+
+    <div class="container-fluid mt-n4 pb-5 px-2 px-md-4" style="position: relative; z-index: 20;">
+        
+        <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+            <div class="card-body p-2 p-md-3">
+                <form method="GET" class="row g-2 align-items-center mb-0">
+                    <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                    <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                    <div class="col-md-8 col-12 text-center text-md-start">
+                        <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador de Cupones</h6>
+                        <p class="small mb-0 opacity-75 d-none d-md-block">Ingresá el código del cupón para verificar su estado.</p>
                     </div>
-                    <div class="d-flex align-items-center">
-                        <span class="small fw-bold text-white text-uppercase me-2">Hasta Venc.:</span>
-                        <input type="date" name="hasta" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $hasta; ?>" required style="max-width: 150px;">
+                    <div class="col-md-4 col-12 text-end">
+                        <div class="input-group input-group-sm">
+                            <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Código..." value="<?php echo htmlspecialchars($_GET['buscar'] ?? ''); ?>">
+                            <button class="btn btn-dark px-3 border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow"><i class="bi bi-search me-2"></i> FILTRAR</button>
                 </form>
             </div>
+        </div>
 
-            <div class="row g-3">
-                <div class="col-6 col-md-3"><div class="header-widget">
-                    <div><div class="widget-label">Cupones Activos</div><div class="widget-value text-white"><?php echo $activos; ?></div></div>
-                    <div class="icon-box bg-success bg-opacity-20 text-white"><i class="bi bi-ticket-detailed"></i></div>
-                </div></div>
-                <div class="col-6 col-md-3"><div class="header-widget">
-                    <div><div class="widget-label">Usos Totales</div><div class="widget-value text-white"><?php echo $total_usos; ?></div></div>
-                    <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-people"></i></div>
-                </div></div>
-                <div class="col-6 col-md-3"><div class="header-widget">
-                    <div><div class="widget-label">Vencen pronto</div><div class="widget-value text-white"><?php echo $por_vencer; ?></div></div>
-                    <div class="icon-box bg-warning bg-opacity-20 text-white"><i class="bi bi-calendar-x"></i></div>
-                </div></div>
-                <div class="col-6 col-md-3"><div class="header-widget border-info">
-                    <div><div class="widget-label">Estrategia</div><div class="widget-value text-white" style="font-size: 1.1rem;">FIDELIZACIÓN</div></div>
-                    <div class="icon-box bg-info bg-opacity-20 text-white"><i class="bi bi-star"></i></div>
-                </div></div>
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-body p-2 p-md-3">
+                <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                    <div class="flex-grow-1" style="min-width: 120px;">
+                        <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Vencimiento Desde</label>
+                        <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
+                    </div>
+                    <div class="flex-grow-1" style="min-width: 120px;">
+                        <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Vencimiento Hasta</label>
+                        <input type="date" name="hasta" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta; ?>">
+                    </div>
+                    <div class="flex-grow-1" style="min-width: 140px;">
+                        <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Responsable</label>
+                        <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
+                            <option value="">Todos</option>
+                            <?php 
+                            $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
+                            foreach($usuarios_lista as $usu): ?>
+                                <option value="<?php echo $usu['id']; ?>" <?php echo ($f_usu == $usu['id']) ? 'selected' : ''; ?>><?php echo strtoupper($usu['usuario']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                        <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                            <i class="bi bi-funnel-fill me-1"></i> FILTRAR
+                        </button>
+                        <a href="gestionar_cupones.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                            <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
+                        </a>
+                    </div>
+                </form>
             </div>
         </div>
-    </div>
 
-    <div class="container pb-5 mt-4">
-        <div class="row g-4">
+    <div class="row g-4 pt-2">
             <?php if($es_admin || in_array('crear_cupon', $permisos)): ?><div class="col-md-4">
                 <div class="card card-custom h-100 border-0 shadow-sm">
                     <div class="card-header bg-white fw-bold py-3 border-bottom-0 text-primary">
@@ -201,9 +259,14 @@ foreach($cupones as $c) {
                         <i class="bi bi-list-task me-2 text-primary"></i> Cupones Generados
                     </div>
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
                             <thead class="bg-light small text-uppercase text-muted">
-                                <tr><th class="ps-4">Código / Descuento</th><th>Estado</th><th>Uso / Límite</th><th class="text-end pe-4">Acción</th></tr>
+                                <tr>
+                                    <th class="ps-4">Código / Descuento</th>
+                                    <th>Estado / Vence</th>
+                                    <th class="d-none d-md-table-cell">Uso / Límite</th>
+                                    <th class="text-end pe-4">Acción</th>
+                                </tr>
                             </thead>
                             <tbody>
                                 <?php if(count($cupones) > 0): ?>
@@ -216,9 +279,22 @@ foreach($cupones as $c) {
                                         else { $badge_estado = '<span class="badge bg-success">Activo</span>'; }
                                     ?>
                                     <tr class="<?php echo ($vencido || $agotado) ? 'opacity-50' : ''; ?>">
-                                        <td class="ps-4"><div class="fw-bold text-dark fs-5"><?php echo $c['codigo']; ?></div><span class="badge bg-primary"><?php echo $c['descuento_porcentaje']; ?>% OFF</span></td>
-                                        <td><?php echo $badge_estado; ?><div class="small text-muted mt-1">Vence: <?php echo date('d/m/y', strtotime($c['fecha_limite'])); ?></div></td>
-                                        <td><div class="fw-bold text-dark"><?php echo $c['usos_actuales']; ?> <small class="text-muted fw-normal">usos</small></div><small class="text-muted">Límite: <?php echo $c['cantidad_limite'] > 0 ? $c['cantidad_limite'] : '∞'; ?></small></td>
+                                        <td class="ps-4">
+                                            <div class="fw-bold text-dark fs-5"><?php echo $c['codigo']; ?></div>
+                                            <span class="badge bg-primary"><?php echo $c['descuento_porcentaje']; ?>% OFF</span>
+                                            <div class="small text-muted mt-1"><i class="bi bi-person-fill"></i> Op: <strong><?php echo $c['creador'] ? strtoupper($c['creador']) : 'S/D'; ?></strong></div>
+                                        </td>
+                                        <td>
+                                            <?php echo $badge_estado; ?>
+                                            <div class="small text-muted mt-1">Vence: <?php echo date('d/m/y', strtotime($c['fecha_limite'])); ?></div>
+                                            <div class="d-block d-md-none small mt-1">
+                                                <b><?php echo $c['usos_actuales']; ?></b> / <?php echo $c['cantidad_limite'] > 0 ? $c['cantidad_limite'] : '∞'; ?> usos
+                                            </div>
+                                        </td>
+                                        <td class="d-none d-md-table-cell">
+                                            <div class="fw-bold text-dark"><?php echo $c['usos_actuales']; ?> <small class="text-muted fw-normal">usos</small></div>
+                                            <small class="text-muted">Límite: <?php echo $c['cantidad_limite'] > 0 ? $c['cantidad_limite'] : '∞'; ?></small>
+                                        </td>
                                         <td class="text-end pe-4">
                                             <button onclick='abrirModalEditar(<?php echo json_encode($c); ?>)' class="btn btn-sm btn-outline-primary border-0 rounded-circle shadow-sm me-1"><i class="bi bi-pencil-square"></i></button>
                                             <?php if($es_admin || in_array('eliminar_cupon', $permisos)): ?>

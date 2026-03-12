@@ -215,8 +215,15 @@ include 'includes/componente_banner.php';
     <div class="card card-custom border-0 shadow-sm rounded-4">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
-                <thead class="bg-light text-muted small uppercase">
-                    <tr><th class="ps-4">SESIÓN</th><th class="d-none d-md-table-cell">Responsable</th><th>Apertura/Cierre</th><th class="text-end">Ventas</th><th class="text-center d-none d-md-table-cell">Estado</th><th class="text-end pe-4 d-none d-md-table-cell">Acciones</th></tr>
+                <thead class="bg-light text-muted small text-uppercase">
+                    <tr>
+                        <th class="ps-4 py-3">Sesión</th>
+                        <th>Apertura / Cierre</th>
+                        <th class="d-none d-md-table-cell">Responsable</th>
+                        <th class="text-end d-none d-md-table-cell">Ventas</th>
+                        <th class="text-end">Diferencia</th>
+                        <th class="text-end pe-4 d-none d-md-table-cell">Acciones</th>
+                    </tr>
                 </thead>
                 <tbody>
                     <?php if(empty($cajas)): ?>
@@ -224,16 +231,36 @@ include 'includes/componente_banner.php';
                     <?php endif; ?>
                     <?php foreach($cajas as $c): 
                         $dif = floatval($c['diferencia']);
-                        $apertura = date('d/m/y H:i', strtotime($c['fecha_apertura']));
-                        $cierre = $c['fecha_cierre'] ? date('d/m/y H:i', strtotime($c['fecha_cierre'])) : '-';
-                        $badge = ($c['estado'] == 'abierta') ? '<span class="badge bg-primary">ABIERTA</span>' : (abs($dif) < 0.01 ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-danger">ERROR</span>');
+                        $apertura = date('d/m/y', strtotime($c['fecha_apertura'])) . ' <small class="text-muted">' . date('H:i', strtotime($c['fecha_apertura'])) . ' hs</small>';
+                        $cierre = $c['fecha_cierre'] ? date('d/m/y', strtotime($c['fecha_cierre'])) . ' <small class="text-muted">' . date('H:i', strtotime($c['fecha_cierre'])) . ' hs</small>' : '<span class="badge bg-warning text-dark">PENDIENTE</span>';
+                        
+                        if ($c['estado'] == 'abierta') {
+                            $color_dif = 'text-primary';
+                            $texto_dif = 'ABIERTA';
+                        } else {
+                            if (abs($dif) < 0.01) {
+                                $color_dif = 'text-success';
+                                $texto_dif = 'OK ($0,00)';
+                            } else {
+                                $color_dif = 'text-danger';
+                                $texto_dif = ($dif > 0 ? '+' : '') . '$' . number_format($dif, 2, ',', '.');
+                            }
+                        }
                     ?>
                     <tr style="cursor: pointer;" onclick="abrirAuditoria(<?php echo $c['id']; ?>)">
-                        <td class="ps-4 fw-bold text-muted">CJ-<?php echo str_pad($c['id'], 6, '0', STR_PAD_LEFT); ?></td>
-                        <td class="d-none d-md-table-cell"><div class="fw-bold"><?php echo htmlspecialchars($c['usuario']); ?></div></td>
-                        <td><div class="small">Ingreso: <?php echo $apertura; ?><br>Salida: <?php echo $cierre; ?></div></td>
-                        <td class="text-end fw-bold">$<?php echo number_format($c['total_ventas'], 2, ',', '.'); ?></td>
-                        <td class="text-center d-none d-md-table-cell"><?php echo $badge; ?></td>
+                        <td class="ps-4">
+                            <div class="fw-bold text-dark">#CJ-<?php echo str_pad($c['id'], 6, '0', STR_PAD_LEFT); ?></div>
+                            <div class="d-block d-md-none mt-1"><span class="badge bg-light text-dark border fw-bold"><?php echo htmlspecialchars($c['usuario']); ?></span></div>
+                        </td>
+                        <td>
+                            <div class="fw-bold text-dark"><i class="bi bi-box-arrow-in-right text-success me-1"></i><?php echo $apertura; ?></div>
+                            <div class="fw-bold text-dark mt-1"><i class="bi bi-box-arrow-left text-danger me-1"></i><?php echo $cierre; ?></div>
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            <div class="small fw-bold text-uppercase text-muted"><i class="bi bi-person-circle me-1"></i><?php echo htmlspecialchars($c['usuario']); ?></div>
+                        </td>
+                        <td class="text-end fw-bold text-muted d-none d-md-table-cell">$<?php echo number_format($c['total_ventas'], 2, ',', '.'); ?></td>
+                        <td class="text-end fw-bold <?php echo $color_dif; ?> fs-6"><?php echo $texto_dif; ?></td>
                         <td class="text-end pe-4 d-none d-md-table-cell"><button class="btn btn-sm btn-outline-primary rounded-pill px-3">AUDITAR</button></td>
                     </tr>
                     <?php endforeach; ?>

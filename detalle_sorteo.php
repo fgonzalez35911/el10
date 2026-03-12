@@ -158,20 +158,23 @@ include 'includes/layout_header.php'; ?>
 </style>
 
 <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
         <div>
-            <a href="sorteos.php" class="text-muted text-decoration-none small mb-2 d-block"><i class="bi bi-arrow-left"></i> VOLVER A SORTEOS</a>
-            <h2 class="fw-bold text-primary mb-0">
+            <h2 class="fw-bold text-primary mb-0" style="font-size: 1.6rem;">
                 <i class="bi bi-ticket-perforated me-2"></i><?php echo htmlspecialchars($sorteo['titulo']); ?>
-                <span class="badge <?php echo ($sorteo['estado']=='activo'?'bg-success':($sorteo['estado']=='pendiente'?'bg-warning text-dark':'bg-secondary')); ?> fs-6 align-middle ms-2"><?php echo strtoupper($sorteo['estado']); ?></span>
+                <span class="badge <?php echo ($sorteo['estado']=='activo'?'bg-success':($sorteo['estado']=='pendiente'?'bg-warning text-dark':'bg-secondary')); ?> fs-6 align-middle ms-2 shadow-sm"><?php echo strtoupper($sorteo['estado']); ?></span>
             </h2>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a href="sorteos.php" class="btn text-white fw-bold rounded-pill px-4 shadow-sm" style="background-color: #102A57;">
+                <i class="bi bi-arrow-left me-2"></i>VOLVER
+            </a>
+            
             <?php if($sorteo['estado'] == 'pendiente'): ?>
-                <button class="btn btn-outline-primary fw-bold rounded-pill px-4" onclick="abrirModalEdicionTotal()"><i class="bi bi-pencil-square me-2"></i>EDITAR SORTEO</button>
-                <button class="btn btn-success fw-bold rounded-pill px-4 shadow" onclick="lanzarConfirmacionFinal()"><i class="bi bi-check-circle-fill me-2"></i>CONFIRMAR SORTEO</button>
+                <button class="btn btn-outline-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModalEdicionTotal()"><i class="bi bi-pencil-square me-2"></i>EDITAR</button>
+                <button class="btn btn-success fw-bold rounded-pill px-4 shadow" onclick="lanzarConfirmacionFinal()"><i class="bi bi-check-circle-fill me-2"></i>CONFIRMAR</button>
             <?php elseif($sorteo['estado'] == 'activo'): ?>
-                <button class="btn btn-warning fw-bold shadow rounded-pill px-4" onclick="iniciarSorteoVisual()"><i class="bi bi-trophy-fill me-2"></i>¡REALIZAR SORTEO!</button>
+                <button class="btn btn-warning fw-bold shadow rounded-pill px-4 text-dark" onclick="iniciarSorteoVisual()"><i class="bi bi-trophy-fill me-2"></i>¡SORTEAR!</button>
             <?php endif; ?>
         </div>
     </div>

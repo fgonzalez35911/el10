@@ -19,6 +19,9 @@ $mensaje = '';
 $prods_db = $conexion->query("SELECT id, descripcion FROM productos WHERE activo=1 AND tipo != 'combo' ORDER BY descripcion")->fetchAll(PDO::FETCH_ASSOC);
 $combos_db = $conexion->query("SELECT id, nombre FROM combos WHERE activo=1 ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
 
+// AUTOPATCH: Agregar columna id_usuario si no existe
+try { $conexion->query("ALTER TABLE premios ADD COLUMN id_usuario INT(11) NULL DEFAULT 1"); } catch(Exception $e) {}
+
 // 2. LÓGICA DE AGREGAR PREMIO (Original corregida)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['agregar'])) {
     if (!$es_admin && !in_array('crear_premio', $permisos)) die("Sin permiso para crear premios.");
@@ -41,8 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['agregar'])) {
             }
         }
 
-        $sql = "INSERT INTO premios (nombre, puntos_necesarios, stock, es_cupon, monto_dinero, activo, id_articulo, tipo_articulo) VALUES (?, ?, ?, ?, ?, 1, ?, ?)";
-        $conexion->prepare($sql)->execute([$nombre, $puntos, $stock, $es_cupon, $monto, $id_articulo, $tipo_articulo]);
+        $sql = "INSERT INTO premios (nombre, puntos_necesarios, stock, es_cupon, monto_dinero, activo, id_articulo, tipo_articulo, id_usuario) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)";
+        $conexion->prepare($sql)->execute([$nombre, $puntos, $stock, $es_cupon, $monto, $id_articulo, $tipo_articulo, $_SESSION['usuario_id']]);
         header("Location: gestionar_premios.php?msg=creado"); exit;
     } catch (Exception $e) { $mensaje = '<div class="alert alert-danger">Error: '.$e->getMessage().'</div>'; }
 }
@@ -107,66 +110,119 @@ if (isset($_GET['borrar'])) {
 // 5. FILTROS Y LISTADO (Estandarizado)
 $desde_p = $_GET['desde_p'] ?? '0';
 $hasta_p = $_GET['hasta_p'] ?? '999999';
+$buscar = trim($_GET['buscar'] ?? '');
+
+$condiciones = ["p.puntos_necesarios BETWEEN ? AND ?"];
+$parametros = [$desde_p, $hasta_p];
+
+if (!empty($buscar)) {
+    $condiciones[] = "(p.nombre LIKE ? OR p.id = ?)";
+    $parametros[] = "%$buscar%";
+    $parametros[] = intval($buscar);
+}
 
 $sqlLista = "SELECT p.*, 
+             u.nombre_completo as creador_nombre, u.usuario as creador_usuario, r.nombre as creador_rol,
              CASE 
                 WHEN p.tipo_articulo = 'producto' THEN (SELECT descripcion FROM productos WHERE id = p.id_articulo)
                 WHEN p.tipo_articulo = 'combo' THEN (SELECT nombre FROM combos WHERE id = p.id_articulo)
                 ELSE NULL 
              END as nombre_vinculo
              FROM premios p 
-             WHERE p.puntos_necesarios BETWEEN ? AND ?
+             LEFT JOIN usuarios u ON p.id_usuario = u.id
+             LEFT JOIN roles r ON u.id_rol = r.id
+             WHERE " . implode(" AND ", $condiciones) . " 
              ORDER BY p.puntos_necesarios ASC";
 $stmtL = $conexion->prepare($sqlLista);
-$stmtL->execute([$desde_p, $hasta_p]);
+$stmtL->execute($parametros);
 $lista = $stmtL->fetchAll(PDO::FETCH_ASSOC);
 
-// CONFIGURACIÓN DE COLOR (Original)
-$color_sistema = '#102A57';
 try {
     $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
-    $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
 } catch (Exception $e) { }
 
-include 'includes/layout_header.php'; 
+$titulo = "Catálogo de Premios";
+$subtitulo = "Gestioná los regalos para el canje de puntos.";
+$icono_bg = "bi-gift-fill";
+
+$query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde_p=$desde_p&hasta_p=$hasta_p";
+$botones = [
+    ['texto' => 'Reporte PDF', 'link' => "reporte_premios.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
+];
+
+$widgets = [
+    ['label' => 'Total Premios', 'valor' => count($lista), 'icono' => 'bi-list-check', 'icon_bg' => 'bg-white bg-opacity-10'],
+    ['label' => 'Stock Físico', 'valor' => array_sum(array_column(array_filter($lista, function($i) { return !$i['es_cupon']; }), 'stock')), 'icono' => 'bi-box-seam', 'border' => 'border-warning', 'icon_bg' => 'bg-warning bg-opacity-20'],
+    ['label' => 'Cupones ($)', 'valor' => count(array_filter($lista, function($i) { return $i['es_cupon']; })), 'icono' => 'bi-ticket-perforated', 'border' => 'border-success', 'icon_bg' => 'bg-success bg-opacity-20']
+];
+
+include 'includes/layout_header.php';
+include 'includes/componente_banner.php'; 
 ?>
 
-<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
-    <i class="bi bi-gift-fill bg-icon-large"></i>
-    <div class="container position-relative">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="font-cancha mb-0 text-white">Catálogo de Premios</h2>
-                <p class="opacity-75 mb-0 text-white small">Gestioná los regalos para el canje de puntos.</p>
-            </div>
-            <div class="d-flex gap-2">
-                <a href="canje_puntos.php" class="btn btn-outline-light rounded-pill fw-bold px-4 shadow-sm">VOLVER</a>
-                <a href="reporte_premios.php?desde=<?php echo $desde_p; ?>&hasta=<?php echo $hasta_p; ?>" target="_blank" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-file-earmark-pdf-fill me-2"></i> REPORTE PDF
-                </a>
-            </div>
-        </div>
+<style>
+    @media (max-width: 768px) {
+        .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.4rem 0.2rem !important; font-size: 0.7rem !important; }
+        .tabla-movil-ajustada .fw-bold { font-size: 0.75rem !important; }
+        .btn-accion-movil { padding: 0.2rem 0.4rem !important; font-size: 0.75rem !important; }
+        /* Ocultar columnas menos relevantes en móvil para evitar scroll horizontal */
+        .tabla-movil-ajustada th:nth-child(2),
+        .tabla-movil-ajustada td:nth-child(2) { display: none !important; }
+    }
+</style>
 
-        <div class="bg-white bg-opacity-10 p-3 rounded-4 shadow-sm d-inline-block border border-white border-opacity-25 mt-2 mb-4">
-            <form method="GET" class="d-flex align-items-center gap-3 mb-0">
-                <div class="d-flex align-items-center">
-                    <span class="small fw-bold text-white text-uppercase me-2">Puntos Min:</span>
-                    <input type="number" name="desde_p" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $desde_p; ?>" style="max-width: 120px;">
+<div class="container-fluid container-md mt-n4 px-2 px-md-3" style="position: relative; z-index: 20;">
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border: none !important; border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="row g-2 align-items-center mb-0">
+                <input type="hidden" name="desde_p" value="<?php echo htmlspecialchars($desde_p); ?>">
+                <input type="hidden" name="hasta_p" value="<?php echo htmlspecialchars($hasta_p); ?>">
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Busca un premio por nombre o ID en el catálogo.</p>
                 </div>
-                <div class="d-flex align-items-center">
-                    <span class="small fw-bold text-white text-uppercase me-2">Puntos Max:</span>
-                    <input type="number" name="hasta_p" class="form-control border-0 shadow-sm rounded-3 fw-bold" value="<?php echo $hasta_p; ?>" style="max-width: 120px;">
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Nombre o ID..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit" style="border: none !important;"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow"><i class="bi bi-search me-2"></i> FILTRAR</button>
             </form>
         </div>
     </div>
-</div>
 
-<div class="container pb-5 mt-4">
-    <div class="row g-4">
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Puntos Mínimos</label>
+                    <input type="number" name="desde_p" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde_p; ?>">
+                </div>
+                <div class="flex-grow-1" style="min-width: 140px;">
+                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Puntos Máximos</label>
+                    <input type="number" name="hasta_p" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $hasta_p; ?>">
+                </div>
+                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
+                        <i class="bi bi-funnel-fill me-1"></i> FILTRAR
+                    </button>
+                    <a href="gestionar_premios.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
+                        <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert py-2 small mb-4 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+        <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un registro para ver detalles
+    </div>
+
+    <div class="row g-4 mx-0 mb-5">
         <?php if($es_admin || in_array('crear_premio', $permisos)): ?>
-        <div class="col-md-4">
+        <div class="col-md-4 px-1 px-md-3">
             <div class="card card-custom border-0 shadow-sm h-100">
                 <div class="card-header bg-white fw-bold py-3 border-bottom-0 text-primary"><i class="bi bi-plus-circle-fill me-2"></i> Nuevo Premio</div>
                 <div class="card-body bg-light rounded-bottom">
@@ -206,14 +262,14 @@ include 'includes/layout_header.php';
         </div>
         <?php endif; ?>
 
-        <div class="col-md-8">
-            <div class="card card-custom border-0 shadow-sm h-100">
+        <div class="col-md-8 px-1 px-md-3">
+            <div class="card card-custom border-0 shadow-sm h-100 w-100">
                 <div class="card-header bg-white fw-bold py-3 border-bottom d-flex justify-content-between">
                     <span><i class="bi bi-list-check me-2 text-primary"></i> Premios Disponibles</span>
                     <span class="badge bg-light text-muted border"><?php echo count($lista); ?> items</span>
                 </div>
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
+                    <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
                         <thead class="bg-light small text-uppercase text-muted">
                             <tr><th class="ps-4">Premio</th><th>Vinculación</th><th>Costo Puntos</th><th class="text-end pe-4">Acciones</th></tr>
                         </thead>
@@ -221,8 +277,9 @@ include 'includes/layout_header.php';
                             <?php foreach($lista as $p): $jsonData = htmlspecialchars(json_encode($p), ENT_QUOTES, 'UTF-8'); ?>
                             <tr style="cursor:pointer;" onclick='verDetallePremio(<?php echo $jsonData; ?>)'>
                                 <td class="ps-4">
-                                    <div class="fw-bold text-dark"><?php echo htmlspecialchars($p['nombre']); ?></div>
-                                    <?php if($p['es_cupon']): ?><span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 small">$<?php echo number_format($p['monto_dinero'], 0); ?></span><?php endif; ?>
+                                    <div class="fw-bold text-dark">#<?php echo $p['id']; ?> - <?php echo htmlspecialchars($p['nombre']); ?></div>
+                                    <div class="small text-muted"><i class="bi bi-person-fill"></i> <?php echo htmlspecialchars($p['creador_usuario'] ?? 'Sistema'); ?></div>
+                                    <?php if($p['es_cupon']): ?><span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 small mt-1">$<?php echo number_format($p['monto_dinero'], 0); ?></span><?php endif; ?>
                                 </td>
                                 <td><?php if(!$p['es_cupon']): ?>
                                     <span class="badge bg-info bg-opacity-10 text-primary border border-info border-opacity-25"><?php echo $p['nombre_vinculo'] ?: 'Sin vincular'; ?></span>
@@ -261,16 +318,105 @@ function cargarListaArticulos() {
     document.getElementById('selCombo').style.display = (tipo === 'combo') ? 'block' : 'none';
 }
 
+<?php
+$u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol FROM usuarios u JOIN roles r ON u.id_rol = r.id WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
+$ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
+$nombreOp = $ownerRow ? ($ownerRow['nombre_completo'] ?: 'SISTEMA') : 'SISTEMA';
+$rolOp = $ownerRow ? ($ownerRow['nombre_rol'] ?: 'ADMINISTRADOR') : 'ADMINISTRADOR';
+$aclaracionOp = strtoupper($nombreOp . " | " . $rolOp);
+
+$rutaFirmaOp = "img/firmas/firma_admin.png";
+if ($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
+    $rutaFirmaOp = "img/firmas/usuario_{$ownerRow['id']}.png";
+}
+$firmaBase64 = file_exists($rutaFirmaOp) ? 'data:image/png;base64,' . base64_encode(file_get_contents($rutaFirmaOp)) : '';
+?>
+const confData = <?php echo json_encode([
+    'nombre_negocio' => $conf['nombre_negocio'] ?? 'MI NEGOCIO',
+    'direccion_local' => $conf['direccion_local'] ?? '',
+    'logo_url' => $conf['logo_url'] ?? '',
+    'cuit' => $conf['cuit'] ?? 'S/N'
+]); ?>;
+
 function verDetallePremio(p) {
-    Swal.fire({
-        title: p.nombre,
-        html: `<div class="text-start">
-            <p><strong>Puntos:</strong> ${p.puntos_necesarios}</p>
-            <p><strong>Stock:</strong> ${p.stock}</p>
-            <p><strong>Tipo:</strong> ${p.es_cupon ? 'Cupón Dinero' : 'Mercadería'}</p>
-            ${p.es_cupon ? `<p><strong>Monto:</strong> $${p.monto_dinero}</p>` : `<p><strong>Vínculo:</strong> ${p.nombre_vinculo || 'Ninguno'}</p>`}
-        </div>`,
-        confirmButtonText: 'Cerrar', confirmButtonColor: '<?php echo $color_sistema; ?>'
+    let ts = Date.now();
+    let logoHtml = confData.logo_url ? `<img src="${confData.logo_url}?v=${ts}" style="max-height: 50px; margin-bottom: 10px;">` : '';
+    let tipoTxt = p.es_cupon == 1 ? 'CUPÓN DE DINERO' : 'ARTÍCULO FÍSICO';
+    let vinculoTxt = p.es_cupon == 1 ? `Monto a favor: $${p.monto_dinero}` : `Stock: ${p.stock} u. | Vínculo: ${p.nombre_vinculo || 'General'}`;
+
+    let linkPdf = window.location.origin + window.location.pathname.replace('gestionar_premios.php', '') + "ticket_premio_pdf.php?id=" + p.id;
+    let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdf);
+    
+    let creadorNombre = p.creador_nombre ? p.creador_nombre : (p.creador_usuario ? p.creador_usuario : 'SISTEMA');
+    let creadorRol = p.creador_rol ? p.creador_rol : 'OPERADOR';
+    let creadorAclaracion = (creadorNombre + ' | ' + creadorRol).toUpperCase();
+    let firmaSrc = p.id_usuario ? `img/firmas/usuario_${p.id_usuario}.png` : `img/firmas/firma_admin.png`;
+    let firmaHtml = `<img src="${firmaSrc}?v=${ts}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.src='img/firmas/firma_admin.png'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${creadorAclaracion}</small>`;
+
+    const html = `
+        <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
+            <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 15px; margin-bottom: 15px;">
+                ${logoHtml}
+                <h4 style="font-weight: 900; margin: 0; text-transform: uppercase;">${confData.nombre_negocio}</h4>
+                <small style="color: #666;">${confData.direccion_local}</small>
+            </div>
+            <div style="text-align: center; margin-bottom: 15px;">
+                <h5 style="font-weight: 900; color: #102A57; letter-spacing: 1px; margin:0;">FICHA DE PREMIO</h5>
+                <span style="font-size: 10px; background: #eee; padding: 2px 6px; border-radius: 4px;">ID REF #${p.id}</span>
+            </div>
+            <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+                <div style="margin-bottom: 4px;"><strong>NOMBRE:</strong> ${p.nombre.toUpperCase()}</div>
+                <div style="margin-bottom: 4px;"><strong>TIPO:</strong> ${tipoTxt}</div>
+                <div><strong>DETALLE:</strong> ${vinculoTxt}</div>
+            </div>
+            <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+                <span style="font-size: 1.1em; font-weight:800;">COSTO:</span>
+                <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${p.puntos_necesarios} pts</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
+                <div style="width: 45%; text-align: center;">${firmaHtml}</div>
+                <div style="width: 45%; text-align: center;">
+                    <a href="${linkPdf}" target="_blank"><img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;"></a>
+                    <div style="font-size: 9px; margin-top: 5px;">ESCANEAR QR</div>
+                </div>
+            </div>
+        </div>
+        <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3 no-print">
+            <button class="btn btn-sm btn-outline-dark fw-bold flex-grow-1" onclick="window.open('${linkPdf}', '_blank')"><i class="bi bi-file-earmark-pdf-fill me-1"></i> PDF</button>
+            <button class="btn btn-sm btn-success fw-bold flex-grow-1" onclick="mandarWAPremio('${p.id}', '${p.nombre.replace(/'/g, "\\'")}', '${p.puntos_necesarios}', '${linkPdf}')"><i class="bi bi-whatsapp me-1"></i> WA</button>
+            <button class="btn btn-sm btn-primary fw-bold flex-grow-1" style="background-color:#102A57; border-color:#102A57;" onclick="mandarMailPremio(${p.id})"><i class="bi bi-envelope-paper me-1"></i> EMAIL</button>
+        </div>
+    `;
+    Swal.fire({ html: html, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
+}
+
+function mandarWAPremio(id, nombre, pts, link) {
+    let msj = `¡Mirá este premio de nuestro catálogo! 🎁\n*${nombre}* por solo *${pts} puntos*.\nFicha técnica: ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
+}
+
+function mandarMailPremio(id) {
+    Swal.fire({ 
+        title: 'Enviar Ficha del Premio', 
+        text: 'Ingrese el correo electrónico de destino:',
+        input: 'email', 
+        showCancelButton: true,
+        confirmButtonText: 'ENVIAR AHORA',
+        cancelButtonText: 'CANCELAR',
+        confirmButtonColor: '#102A57'
+    }).then((r) => {
+        if(r.isConfirmed && r.value) {
+            Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            let fData = new FormData(); 
+            fData.append('id', id); 
+            fData.append('email', r.value);
+            
+            fetch('acciones/enviar_email_premio.php', { method: 'POST', body: fData })
+            .then(res => res.json())
+            .then(d => { 
+                Swal.fire(d.status === 'success' ? 'Ficha Enviada' : 'Error al enviar', d.msg || '', d.status); 
+            });
+        }
     });
 }
 

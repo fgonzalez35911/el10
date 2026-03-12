@@ -47,7 +47,29 @@ if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes',
         }
     }
 }
+
+// --- CONEXIÓN REAL CON ALERTA DE STOCK GLOBAL ---
+$alerta_html = "";
+if (($conf['stock_use_global'] ?? 0) == 1) {
+    $limite_global = intval($conf['stock_global_valor'] ?? 5);
+    $stmtS = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE stock_actual <= ? AND activo = 1 AND tipo != 'combo'");
+    $stmtS->execute([$limite_global]);
+    $cant_critica = $stmtS->fetchColumn();
+
+    if ($cant_critica > 0) {
+        $alerta_html = '
+        <div class="alert alert-danger shadow-sm rounded-4 border-0 d-flex align-items-center mb-4 mt-2 animate__animated animate__headShake">
+            <i class="bi bi-exclamation-triangle-fill fs-3 me-3"></i>
+            <div>
+                <strong class="d-block">¡ALERTA DE SUMINISTROS!</strong>
+                <span class="small">Tenés <b>'.$cant_critica.'</b> productos con stock igual o menor a <b>'.$limite_global.'</b> unidades. <a href="productos.php?filtro=bajo_stock" class="alert-link text-decoration-underline">Ver lista crítica</a></span>
+            </div>
+        </div>';
+    }
+}
 ?>
+
+<?php echo $alerta_html; ?>
 
 <div class="row g-3 mb-4 mt-2">
     <div class="col-6 col-md-4 col-xl-2">

@@ -46,23 +46,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 // --- 3. FILTROS Y CONSULTA UNIFICADA (GASTOS + MERMAS) ---
-// --- 3. FILTROS Y CONSULTA UNIFICADA (GASTOS + MERMAS) ---
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $f_cat = $_GET['categoria_filtro'] ?? '';
 $f_usu = $_GET['id_usuario'] ?? '';
+$buscar = trim($_GET['buscar'] ?? '');
 
 // Filtros para Gastos
 $condG = ["DATE(g.fecha) >= ?", "DATE(g.fecha) <= ?"];
 $paramsG = [$desde, $hasta];
 if($f_cat !== '' && $f_cat !== 'Mermas') { $condG[] = "g.categoria = ?"; $paramsG[] = $f_cat; }
 if($f_usu !== '') { $condG[] = "g.id_usuario = ?"; $paramsG[] = $f_usu; }
+if(!empty($buscar)) { $condG[] = "(g.descripcion LIKE ? OR g.id = ?)"; array_push($paramsG, "%$buscar%", intval($buscar)); }
 
 // Filtros para Mermas
 $condM = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
 $paramsM = [$desde, $hasta];
 if($f_usu !== '') { $condM[] = "m.id_usuario = ?"; $paramsM[] = $f_usu; }
 if($f_cat !== '' && $f_cat !== 'Mermas') { $condM[] = "1=0"; } 
+if(!empty($buscar)) { $condM[] = "(m.motivo LIKE ? OR m.id = ?)"; array_push($paramsM, "%$buscar%", intval($buscar)); }
 
 $sql = "(SELECT g.id, g.descripcion, g.monto, g.categoria, g.fecha, u.usuario, u.nombre_completo, 'gasto' as tipo_registro, '' as producto_nom, 0 as cantidad, r.nombre as nombre_rol, u.id as id_op 
          FROM gastos g 
@@ -118,7 +120,7 @@ $icono_bg = "bi-wallet2";
 
 $query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [
-    ['texto' => 'REPORTE PDF', 'link' => "reporte_gastos.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']
+    ['texto' => 'Reporte PDF', 'link' => "reporte_gastos.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank']
 ];
 
 $widgets = [
@@ -130,10 +132,40 @@ $widgets = [
 include 'includes/componente_banner.php'; 
 ?>
 
-<div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
+<style>
+    @media (max-width: 768px) {
+        .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.4rem 0.2rem !important; font-size: 0.75rem !important; }
+        .tabla-movil-ajustada .fw-bold { font-size: 0.8rem !important; }
+    }
+</style>
+
+<div class="container-fluid container-md mt-n4 px-2 px-md-3" style="position: relative; z-index: 20;">
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border: none !important; border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="row g-2 align-items-center mb-0">
+                <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                <input type="hidden" name="categoria_filtro" value="<?php echo htmlspecialchars($f_cat); ?>">
+                <input type="hidden" name="id_usuario" value="<?php echo htmlspecialchars($f_usu); ?>">
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Busca un registro por detalle, motivo o número de OP.</p>
+                </div>
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Buscar..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit" style="border: none !important;"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
             <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
                 <div class="flex-grow-1" style="min-width: 120px;">
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
                     <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
@@ -179,6 +211,10 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
+    <div class="alert py-2 small mb-4 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+        <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un registro para ver el comprobante
+    </div>
+
     <div class="row g-4">
         <div class="col-md-4">
             <div class="card border-0 shadow-sm rounded-4 h-100">
@@ -194,10 +230,10 @@ include 'includes/componente_banner.php';
             </div>
         </div>
 
-        <div class="col-md-8">
-            <div class="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
+        <div class="col-md-8 px-1 px-md-3">
+            <div class="card border-0 shadow-sm rounded-4 h-100 w-100 overflow-hidden">
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center">
+                    <table class="table table-hover align-middle mb-0 text-center tabla-movil-ajustada">
                         <thead class="bg-light small text-uppercase text-muted"><tr><th class="ps-4 py-3 text-start">Fecha</th><th class="text-start">Detalle</th><th class="text-end pe-4">Monto</th></tr></thead>
                         <tbody>
                             <?php foreach($movimientos as $g): 
@@ -221,20 +257,31 @@ include 'includes/componente_banner.php';
 </div>
 
 <script>
+<?php
+$firmas_base64 = [];
+$usuarios_lista_js = $conexion->query("SELECT id FROM usuarios")->fetchAll(PDO::FETCH_ASSOC);
+foreach($usuarios_lista_js as $u) {
+    $r = "img/firmas/usuario_{$u['id']}.png";
+    if(file_exists($r)) { $firmas_base64[$u['id']] = 'data:image/png;base64,' . base64_encode(file_get_contents($r)); }
+}
+$ruta_adm = "img/firmas/firma_admin.png";
+$firma_admin_b64 = file_exists($ruta_adm) ? 'data:image/png;base64,' . base64_encode(file_get_contents($ruta_adm)) : '';
+?>
 const miLocal = <?php echo json_encode($conf); ?>;
-const miFirma = "<?php echo file_exists($ruta_firma) ? $ruta_firma : ''; ?>";
+const firmasB64 = <?php echo json_encode($firmas_base64); ?>;
+const firmaAdminB64 = "<?php echo $firma_admin_b64; ?>";
 
 function verTicket(gasto) {
+    let ts = Date.now();
     let montoF = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(gasto.monto);
     let fechaF = new Date(gasto.fecha).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    let linkPdfPublico = window.location.origin + "/ticket_gasto_pdf.php?id=" + gasto.id;
+    let linkPdfPublico = window.location.origin + window.location.pathname.replace('gastos.php', '') + "ticket_gasto_pdf.php?id=" + gasto.id;
     let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
-    let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}" style="max-height: 50px; margin-bottom: 10px;">` : '';
+    let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}?v=${ts}" style="max-height: 50px; margin-bottom: 10px;">` : '';
     
-    // Firma del Operador: Grande (80px) y sobre la linea
     let aclaracionOp = gasto.nombre_completo ? (gasto.nombre_completo + " | " + gasto.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
-    let rutaFirmaOp = gasto.id_op ? `img/firmas/usuario_${gasto.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
-    let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
+    let firmaSeleccionada = (gasto.id_op && firmasB64[gasto.id_op]) ? firmasB64[gasto.id_op] : '';
+    let firmaHtml = firmaSeleccionada ? `<img src="${firmaSeleccionada}" style="max-height: 80px; margin-bottom: -25px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>` : `<div style="border-top:1px solid #000; width:100%; margin-top:35px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
 
     let ticketHTML = `
         <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
@@ -280,15 +327,16 @@ function verTicket(gasto) {
 }
 
 function verMerma(merma) {
+    let ts = Date.now();
     let montoF = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(merma.monto);
     let fechaF = new Date(merma.fecha).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    let linkPdfPublico = window.location.origin + "/ticket_merma_pdf.php?id=" + merma.id;
+    let linkPdfPublico = window.location.origin + window.location.pathname.replace('gastos.php', '') + "ticket_merma_pdf.php?id=" + merma.id;
     let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdfPublico);
-    let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}" style="max-height: 50px; margin-bottom: 10px;">` : '';
+    let logoHtml = miLocal.logo_url ? `<img src="${miLocal.logo_url}?v=${ts}" style="max-height: 50px; margin-bottom: 10px;">` : '';
     
     let aclaracionOp = merma.nombre_completo ? (merma.nombre_completo + " | " + merma.nombre_rol).toUpperCase() : 'OPERADOR AUTORIZADO';
-    let rutaFirmaOp = merma.id_op ? `img/firmas/usuario_${merma.id_op}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
-    let firmaHtml = `<img src="${rutaFirmaOp}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
+    let firmaSeleccionada = (merma.id_op && firmasB64[merma.id_op]) ? firmasB64[merma.id_op] : '';
+    let firmaHtml = firmaSeleccionada ? `<img src="${firmaSeleccionada}" style="max-height: 80px; margin-bottom: -25px;"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>` : `<div style="border-top:1px solid #000; width:100%; margin-top:35px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracionOp}</small>`;
 
     let ticketHTML = `
         <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">

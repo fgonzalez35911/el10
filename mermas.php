@@ -61,10 +61,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $f_usu = $_GET['id_usuario'] ?? '';
+$buscar = trim($_GET['buscar'] ?? '');
 
 $cond = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
 $params = [$desde, $hasta];
 if($f_usu !== '') { $cond[] = "m.id_usuario = ?"; $params[] = $f_usu; }
+if(!empty($buscar)) { 
+    $cond[] = "(p.descripcion LIKE ? OR m.motivo LIKE ? OR m.id = ?)"; 
+    array_push($params, "%$buscar%", "%$buscar%", intval($buscar)); 
+}
 
 $productos = $conexion->query("SELECT id, descripcion, stock_actual FROM productos WHERE activo=1 ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_OBJ);
 
@@ -92,6 +97,14 @@ foreach($mermas as $m) { $montoFiltrado += ($m->cantidad * $m->precio_costo); }
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        @media (max-width: 768px) {
+            .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.5rem 0.3rem !important; font-size: 0.75rem !important; }
+            .tabla-movil-ajustada .fw-bold { font-size: 0.8rem !important; }
+            .tabla-movil-ajustada small { font-size: 0.7rem !important; }
+            .tabla-movil-ajustada .badge { font-size: 0.65rem !important; padding: 0.35em 0.5em !important; }
+        }
+    </style>
 </head>
 <body class="bg-light">
     
@@ -106,9 +119,8 @@ $icono_bg = "bi-trash3";
 $query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 $botones = [];
 if($es_admin || in_array('reporte_mermas', $permisos)) {
-    $botones[] = ['texto' => 'PDF', 'link' => "reporte_mermas.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank'];
+    $botones[] = ['texto' => 'Reporte PDF', 'link' => "reporte_mermas.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm', 'target' => '_blank'];
 }
-
 $widgets = [
     ['label' => 'Bajas Filtradas', 'valor' => count($mermas), 'icono' => 'bi-box-seam', 'icon_bg' => 'bg-white bg-opacity-10'],
     ['label' => 'Pérdida Filtrada', 'valor' => '$'.number_format($montoFiltrado, 0, ',', '.'), 'icono' => 'bi-graph-down-arrow', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20'],
@@ -118,11 +130,44 @@ $widgets = [
 include 'includes/componente_banner.php'; 
 ?>
 
-    <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
-        
-        <div class="card border-0 shadow-sm rounded-4 mb-4">
-            <div class="card-body p-3">
-                <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+<style>
+    @media (max-width: 768px) {
+        .tabla-movil-ajustada td, .tabla-movil-ajustada th { padding: 0.4rem 0.2rem !important; font-size: 0.75rem !important; }
+        .tabla-movil-ajustada .fw-bold { font-size: 0.8rem !important; }
+    }
+</style>
+
+<div class="container-fluid container-md pb-5 mt-n4 px-2 px-md-3" style="position: relative; z-index: 20;">
+
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <form method="GET" class="row g-2 align-items-center mb-0">
+                <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
+                <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
+                <input type="hidden" name="id_usuario" value="<?php echo htmlspecialchars($f_usu); ?>">
+                
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Busque por nombre de producto, motivo o número de OP.</p>
+                </div>
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Buscar baja..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert py-2 small mb-3 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+        <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un registro para ver su comprobante
+    </div>
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-body p-3">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+                <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
                 <div class="flex-grow-1" style="min-width: 120px;">
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
                     <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
@@ -198,13 +243,13 @@ include 'includes/componente_banner.php';
                 <div class="card card-custom border-0 shadow-sm">
                     <div class="card-header bg-white py-3 border-bottom"><h6 class="fw-bold mb-0">Historial de Mermas</h6></div>
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
                             <thead class="bg-light small text-uppercase text-muted">
                                 <tr>
-                                    <th class="ps-3">Fecha</th>
-                                    <th>Producto</th>
-                                    <th>Motivo</th>
-                                    <th class="text-end pe-3">Cant.</th>
+                                    <th class="ps-4 py-3 text-start">Fecha</th>
+                                    <th class="text-start">Producto</th>
+                                    <th class="d-none d-md-table-cell">Motivo</th>
+                                    <th class="text-end pe-4">Cant.</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -213,16 +258,17 @@ include 'includes/componente_banner.php';
                                         $jsonM = htmlspecialchars(json_encode($m), ENT_QUOTES, 'UTF-8');
                                     ?>
                                     <tr style="cursor:pointer" onclick="verTicketMerma(<?php echo $jsonM; ?>)">
-                                        <td class="ps-3 text-muted small">
+                                        <td class="ps-4 text-start text-muted small">
                                             <div class="fw-bold text-dark"><?php echo date('d/m/Y', strtotime($m->fecha)); ?></div>
                                             <?php echo date('H:i', strtotime($m->fecha)); ?> hs
                                         </td>
-                                        <td>
+                                        <td class="text-start">
                                             <div class="fw-bold text-dark"><?php echo htmlspecialchars($m->descripcion); ?></div>
+                                            <div class="d-block d-md-none mt-1 mb-1"><span class="badge bg-light text-dark border fw-normal" style="font-size: 0.7rem;"><?php echo $m->motivo; ?></span></div>
                                             <small class="text-muted"><i class="bi bi-person-circle"></i> <?php echo $m->usuario; ?></small>
                                         </td>
-                                        <td><span class="badge bg-light text-dark border fw-normal"><?php echo $m->motivo; ?></span></td>
-                                        <td class="text-end fw-bold text-danger pe-3">-<?php echo floatval($m->cantidad); ?></td>
+                                        <td class="d-none d-md-table-cell"><span class="badge bg-light text-dark border fw-normal"><?php echo $m->motivo; ?></span></td>
+                                        <td class="text-end fw-bold text-danger pe-4">-<?php echo floatval($m->cantidad); ?></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>

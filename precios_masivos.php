@@ -92,7 +92,7 @@ $subtitulo = "Ajuste masivo de precios por inflación.";
 $icono_bg = "bi-graph-up-arrow";
 
 $botones = [
-    ['texto' => 'HISTORIAL', 'link' => "historial_inflacion.php",  'class' => 'btn btn-warning btn-sm text-dark fw-bold rounded-pill px-3 shadow-sm']
+    ['texto' => 'Ver Historial', 'link' => "historial_inflacion.php", 'icono' => 'bi-clock-history', 'class' => 'btn btn-warning text-dark fw-bold rounded-pill px-3 px-md-4 py-2 shadow-sm']
 ];
 
 $widgets = [
@@ -105,15 +105,24 @@ include 'includes/componente_banner.php';
 ?>
 
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
-    <div class="alert alert-info border-0 shadow-sm rounded-4 mb-3 d-flex align-items-center bg-white py-2">
-        <div class="bg-info bg-opacity-10 p-2 rounded-3 me-3 ms-2">
-            <i class="bi bi-info-circle-fill text-info fs-5"></i>
-        </div>
-        <div>
-            <span class="fw-bold d-block text-dark" style="font-size: 0.85rem;">Asistente de Actualización</span>
-            <p class="mb-0 text-muted small">Seleccioná un <b>Proveedor</b> o <b>Categoría</b> para listar productos. Ingresá el % de aumento y presioná "Aplicar".</p>
+    
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
+        <div class="card-body p-2 p-md-3">
+            <div class="row g-2 align-items-center mb-0">
+                <div class="col-md-8 col-12 text-center text-md-start">
+                    <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador en Lista</h6>
+                    <p class="small mb-0 opacity-75 d-none d-md-block">Primero seleccioná un proveedor/categoría, luego usá este buscador para encontrar un artículo.</p>
+                </div>
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
+                    <div class="input-group input-group-sm">
+                        <input type="text" id="buscadorNaranja" class="form-control border-0 fw-bold shadow-none" placeholder="Escribí para filtrar la lista..." onkeyup="document.getElementById('buscadorTabla').value = this.value; filtrarTabla();">
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="button"><i class="bi bi-search"></i></button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-3">
             <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">

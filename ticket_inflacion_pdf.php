@@ -100,7 +100,8 @@ $pdf->Cell(0, 4, utf8_decode($aclaracion), 0, 1, 'C');
 // QR
 $pdf->Ln(4);
 // El QR apunta a este mismo archivo para validación rápida
-$linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_inflacion_pdf.php?id=" . $id_mov . "&v=" . time();
+$protocolo = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http");
+$linkPdfPublico = $protocolo . "://" . $_SERVER['HTTP_HOST'] . "/ticket_inflacion_pdf.php?id=" . $id_mov . "&publico=1";
 $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
 $y_qr = $pdf->GetY();
 $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');

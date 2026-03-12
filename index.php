@@ -68,6 +68,7 @@ if (isset($_GET['error'])) {
             overflow: hidden;
         }
 
+
         @keyframes gradientBG {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
@@ -95,12 +96,19 @@ if (isset($_GET['error'])) {
             backdrop-filter: blur(25px);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 40px;
-            padding: 3.5rem 3rem;
+            padding: 2rem 1.5rem;
             box-shadow: 0 40px 100px rgba(0,0,0,0.5);
-            width: 100%;
+            width: 90%;
             max-width: 480px;
+            max-height: 95vh;
             color: white;
             z-index: 10;
+        }
+
+        @media (min-width: 768px) {
+            .admin-card {
+                padding: 3.5rem 3rem;
+            }
         }
 
         /* LOGO: Más grande y sin caja de fondo */

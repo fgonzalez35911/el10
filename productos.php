@@ -1,8 +1,8 @@
 <?php
-// productos.php - VERSIÓN PREMIUM UNIFICADA CON CANDADOS DE GRADO MILITAR
+// productos.php - VERSIÓN PREMIUM VANGUARD PRO (TOTALMENTE INTEGRADA)
 session_start();
 
-// 1. CONEXIÓN PREVIA PARA PROCESAMIENTO (Evita pantalla en blanco al redireccionar)
+// 1. CONEXIÓN PREVIA PARA PROCESAMIENTO
 $rutas_db = [__DIR__ . '/db.php', __DIR__ . '/includes/db.php', 'db.php', 'includes/db.php'];
 foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; break; } }
 
@@ -12,51 +12,52 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($_SESSION['rol'] <= 2);
 
-// Candado: Acceso a la página
 if (!$es_admin && !in_array('ver_productos', $permisos)) { 
     header("Location: dashboard.php"); exit; 
 }
 
-// 2. PROCESAR ACCIONES ANTES DE CUALQUIER SALIDA HTML
-if(isset($_GET['toggle_id'])) {
-    if (!$es_admin && !in_array('toggle_producto', $permisos)) die("Acceso denegado: No tienes permiso para activar/desactivar.");
+// --- AJAX: OBTENER DATOS DEL PRODUCTO PARA EL MODAL (Clon Devoluciones) ---
+if (isset($_GET['ajax_get_producto'])) {
+    header('Content-Type: application/json');
+    $id_p = intval($_GET['ajax_get_producto']);
+    $stmt = $conexion->prepare("SELECT p.*, c.nombre as cat_nom FROM productos p LEFT JOIN categorias c ON p.id_categoria = c.id WHERE p.id = ?");
+    $stmt->execute([$id_p]);
+    $producto = $stmt->fetch(PDO::FETCH_ASSOC);
     
+    $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+    
+    // Búsqueda inteligente del Dueño para la firma
+    $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
+                                 FROM usuarios u 
+                                 JOIN roles r ON u.id_rol = r.id 
+                                 WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
+    $owner = $u_owner->fetch(PDO::FETCH_ASSOC);
+    
+    echo json_encode(['producto' => $producto, 'conf' => $conf, 'owner' => $owner]);
+    exit;
+}
+
+// 2. PROCESAR ACCIONES (Toggle y Borrar)
+if(isset($_GET['toggle_id'])) {
+    if (!$es_admin && !in_array('toggle_producto', $permisos)) die("Acceso denegado.");
     $id_tog = intval($_GET['toggle_id']);
     $st_act = intval($_GET['estado']);
     $nuevo = $st_act == 1 ? 0 : 1;
-
-    $stmtP = $conexion->prepare("SELECT descripcion FROM productos WHERE id = ?");
-    $stmtP->execute([$id_tog]);
-    $p_obj = $stmtP->fetch();
-    $nombre_p = $p_obj ? (is_object($p_obj) ? $p_obj->descripcion : $p_obj['descripcion']) : 'Desconocido';
-
     $conexion->prepare("UPDATE productos SET activo = ? WHERE id = ?")->execute([$nuevo, $id_tog]);
-
-    $estado_txt = ($nuevo == 1) ? 'ACTIVADO' : 'DESACTIVADO';
-    $detalles = "Producto/Combo: $nombre_p -> Cambio de Estado a: $estado_txt";
-    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PRODUCTO_ESTADO', ?, NOW())")
-             ->execute([$_SESSION['usuario_id'], $detalles]);
-
     header("Location: productos.php"); exit;
 }
 
 if (isset($_GET['borrar'])) {
-    if (!$es_admin && !in_array('eliminar_producto', $permisos)) die("Acceso denegado: No tienes permiso para eliminar.");
+    if (!$es_admin && !in_array('eliminar_producto', $permisos)) die("Acceso denegado.");
     if (!isset($_GET['token']) || $_GET['token'] !== $_SESSION['csrf_token']) die("Error de seguridad.");
-    
     $id_borrar = intval($_GET['borrar']);
-    $stmtP = $conexion->prepare("SELECT descripcion, codigo_barras, tipo FROM productos WHERE id = ?");
+    $stmtP = $conexion->prepare("SELECT tipo, codigo_barras FROM productos WHERE id = ?");
     $stmtP->execute([$id_borrar]);
-    $p_obj = $stmtP->fetch();
-
+    $p_obj = $stmtP->fetch(PDO::FETCH_ASSOC);
     if ($p_obj) {
-        $tipo_prod = is_object($p_obj) ? $p_obj->tipo : $p_obj['tipo'];
-        $cod_barras = is_object($p_obj) ? $p_obj->codigo_barras : $p_obj['codigo_barras'];
-        $desc = is_object($p_obj) ? $p_obj->descripcion : $p_obj['descripcion'];
-
-        if ($tipo_prod === 'combo') { 
+        if ($p_obj['tipo'] === 'combo') { 
             $stmtC = $conexion->prepare("SELECT id FROM combos WHERE codigo_barras = ?");
-            $stmtC->execute([$cod_barras]);
+            $stmtC->execute([$p_obj['codigo_barras']]);
             $id_c = $stmtC->fetchColumn();
             if($id_c) {
                 $conexion->prepare("DELETE FROM combo_items WHERE id_combo = ?")->execute([$id_c]);
@@ -64,541 +65,482 @@ if (isset($_GET['borrar'])) {
             }
         }
         $conexion->prepare("DELETE FROM productos WHERE id = ?")->execute([$id_borrar]);
-
-        $detalles_b = "Producto/Combo Eliminado: " . $desc . " (Cód: " . $cod_barras . ")";
-        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PRODUCTO_ELIMINADO', ?, NOW())")
-                 ->execute([$_SESSION['usuario_id'], $detalles_b]);
     }
     header("Location: productos.php?msg=borrado"); exit;
 }
 
-// 3. CARGA DE CABECERA Y CONFIGURACIÓN DE VISTA
-require_once 'includes/layout_header.php'; 
-
-$conf_global = $conexion->query("SELECT stock_use_global, stock_global_valor, dias_alerta_vencimiento FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+// 3. CARGA DE DATOS
+$conf_global = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $dias_venc = intval($conf_global['dias_alerta_vencimiento'] ?? 30);
 $usar_global = (isset($conf_global['stock_use_global']) && $conf_global['stock_use_global'] == 1);
 $stock_critico_global = intval($conf_global['stock_global_valor'] ?? 5);
 
-$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll();
-$proveedores_list = $conexion->query("SELECT id, empresa FROM proveedores ORDER BY empresa ASC")->fetchAll();
-$sql = "SELECT p.*, c.nombre as cat, cb.fecha_inicio, cb.fecha_fin, cb.es_ilimitado FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id LEFT JOIN combos cb ON (p.codigo_barras = cb.codigo_barras AND p.codigo_barras != '' AND p.codigo_barras IS NOT NULL) GROUP BY p.id ORDER BY p.id DESC";
-$productos = $conexion->query($sql)->fetchAll();
-
-// OBTENER COLOR SEGURO (ESTÁNDAR PREMIUM)
-$color_sistema = '#102A57';
-try {
-    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
-    if ($resColor) {
-        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
-    }
-} catch (Exception $e) { }
+$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll(PDO::FETCH_ASSOC);
+$proveedores_list = $conexion->query("SELECT id, empresa FROM proveedores ORDER BY empresa ASC")->fetchAll(PDO::FETCH_ASSOC);
+$sql = "SELECT p.*, c.nombre as cat FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id ORDER BY p.id DESC";
+$productos = $conexion->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
 $total_prod = count($productos);
-
 $bajo_stock = 0; $valor_inventario = 0;
 foreach($productos as $p) {
-    $stk = is_object($p) ? $p->stock_actual : $p['stock_actual'];
-    $min = is_object($p) ? $p->stock_minimo : $p['stock_minimo'];
-    $cost = is_object($p) ? $p->precio_costo : $p['precio_costo'];
-    $tipo = is_object($p) ? $p->tipo : $p['tipo'];
-    $limite_para_alerta = $usar_global ? $stock_critico_global : $min;
-    if($stk <= $limite_para_alerta && $tipo !== 'combo') $bajo_stock++;
-    $valor_inventario += ($stk * $cost);
+    $limite_alerta = ($usar_global) ? $stock_critico_global : floatval($p['stock_minimo']);
+    if($p['activo'] == 1 && $p['tipo'] !== 'combo' && floatval($p['stock_actual']) <= $limite_alerta) $bajo_stock++;
+    $valor_inventario += (floatval($p['stock_actual']) * floatval($p['precio_costo']));
 }
+
+include 'includes/layout_header.php'; 
+
+// --- DEFINICIÓN DEL BANNER DINÁMICO ESTANDARIZADO ---
+$titulo = "Catálogo de Productos";
+$subtitulo = "Administración de stock y precios del sistema.";
+$icono_bg = "bi-grid-3x3-gap-fill";
+
+$botones = [
+    ['texto' => 'CREAR', 'icono' => 'bi-plus-circle-fill', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:abrirModalCrear()'],
+    ['texto' => 'REPORTE PDF', 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:lanzarReporteFiltrado()']
+];
+
+$widgets = [
+    ['label' => 'Total Productos', 'valor' => $total_prod, 'icono' => 'bi-box', 'icon_bg' => 'bg-white bg-opacity-10', 'extra' => 'onclick="verTodos()" style="cursor:pointer;"'],
+    ['label' => 'Stock Bajo', 'valor' => $bajo_stock, 'icono' => 'bi-exclamation-triangle', 'border' => 'border-warning', 'icon_bg' => 'bg-warning bg-opacity-20', 'extra' => 'onclick="filtrarStockBajo()" id="widget-stock-bajo" style="cursor:pointer;"'],
+    ['label' => 'Valor Inventario', 'valor' => '$'.number_format($valor_inventario, 0, ',', '.'), 'icono' => 'bi-currency-dollar', 'border' => 'border-success', 'icon_bg' => 'bg-success bg-opacity-20']
+];
+
+include 'includes/componente_banner.php'; 
 ?>
-</div>
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
+<style>
+    .row-bajo-stock .card-prod { background-color: #fff5f5 !important; border: 1px solid #ffcccc !important; box-shadow: 0 0 15px rgba(220, 53, 69, 0.1) !important; }
+    
+    /* Filtros más pegados arriba en escritorio */
+    .filter-bar.sticky-desktop { position: sticky; top: 65px; z-index: 1000; background: #fff; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    
+    @media (max-width: 768px) { 
+        .filter-bar.sticky-desktop { top: 10px; position: relative; padding: 10px; } 
+        /* Escondemos los filtros en móvil por defecto */
+        .filter-content-wrapper { display: none; flex-direction: column; gap: 10px; padding-top: 15px; }
+        .filter-content-wrapper.show { display: flex; }
+        .search-group, .filter-select { width: 100% !important; }
+    }
+    
+    /* Siempre visibles en escritorio */
+    @media (min-width: 769px) {
+        .filter-content-wrapper { display: flex !important; width: 100%; gap: 10px; align-items: center; }
+        .btn-toggle-filters { display: none; }
+    }
+</style>
 
+<div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
 
-<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden;">
-
-    <i class="bi bi-grid-3x3-gap-fill bg-icon-large"></i>
-    <div class="container position-relative">
-        <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
-            <div>
-                <h2 class="font-cancha mb-0 text-white">Catálogo de Productos</h2>
-                <p class="opacity-75 mb-0 text-white small">Administración de stock y precios del sistema</p>
-            </div>
-            <div class="d-flex gap-2">
-                <?php if($es_admin || in_array('ver_combos', $permisos)): ?>
-                <a href="combos.php" class="btn btn-warning fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-box-seam-fill me-2"></i> Combos
-                </a>
-                <?php endif; ?>
-
-                <?php if($es_admin || in_array('crear_producto', $permisos)): ?>
-                <a href="producto_formulario.php" class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm">
-                    <i class="bi bi-plus-lg me-2"></i> Nuevo Producto
-                </a>
-                <?php endif; ?>
+        <div class="filter-bar sticky-desktop rounded-4">
+        
+        <div class="d-flex gap-2 w-100 d-md-none mb-2">
+            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0" type="button" onclick="toggleFiltrosMovil()">
+                <i class="bi bi-funnel-fill"></i> FILTROS
+            </button>
+            <div class="form-check form-switch m-0 d-flex align-items-center justify-content-center bg-light px-2 rounded border flex-fill">
+                <input class="form-check-input me-2 mt-0" type="checkbox" id="switchVistaMovil" onchange="document.getElementById('switchVista').checked = this.checked; cambiarDiseno();" style="transform: scale(1.2); cursor:pointer;">
+                <label class="form-check-label fw-bold text-dark pt-1" for="switchVistaMovil" style="cursor:pointer; font-size:12px;">
+                    <i class="bi bi-view-list"></i> LISTA
+                </label>
             </div>
         </div>
 
-        <div class="row g-3">
-            <div class="col-12 col-md-4">
-                <div class="header-widget" onclick="verTodos()" style="cursor: pointer;">
-                    <div>
-                        <div class="widget-label">Total Productos</div>
-                        <div class="widget-value text-white"><?php echo $total_prod; ?></div>
-                    </div>
-                    <div class="icon-box bg-white bg-opacity-10 text-white">
-                        <i class="bi bi-box"></i>
-                    </div>
-                </div>
+        <div id="wrapperFiltros" class="filter-content-wrapper">
+            <div class="search-group">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" id="buscador" class="search-input" placeholder="Buscar nombre, código...">
             </div>
-            <div class="col-12 col-md-4">
-                <div class="header-widget" onclick="filtrarStockBajo()" style="cursor: pointer;" id="widget-stock-bajo">
-                    <div>
-                        <div class="widget-label">Stock Bajo</div>
-                        <div class="widget-value <?php echo ($bajo_stock > 0) ? 'text-warning' : 'text-white'; ?>">
-                            <?php echo $bajo_stock; ?>
-                        </div>
-                    </div>
-                    <div class="icon-box bg-warning bg-opacity-20 text-white">
-                        <i class="bi bi-exclamation-triangle"></i>
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-md-4">
-                <div class="header-widget">
-                    <div>
-                        <div class="widget-label">Valor Stock (Costo)</div>
-                        <div class="widget-value text-white">$<?php echo number_format($valor_inventario, 0, ',', '.'); ?></div>
-                    </div>
-                    <div class="icon-box bg-success bg-opacity-20 text-white">
-                        <i class="bi bi-currency-dollar"></i>
-                    </div>
-                </div>
+            <select id="filtroCat" class="filter-select">
+                <option value="todos">📦 Todas las Categorías</option>
+                <?php foreach($categorias as $c): ?><option value="<?php echo $c['id']; ?>"><?php echo $c['nombre']; ?></option><?php endforeach; ?>
+            </select>
+            <select id="filtroEstado" class="filter-select">
+                <option value="todos">⚡ Ver Todo</option>
+                <option value="activos">✅ Solo Activos</option>
+                <option value="pausados">⏸️ Pausados</option>
+                <option value="bajo_stock">⚠️ Stock Bajo</option>
+            </select>
+            <select id="ordenarPor" class="filter-select">
+                <option value="recientes">📅 Recientes</option>
+                <option value="nombre_asc">A-Z Nombre</option>
+                <option value="precio_alto">💲 Mayor Precio</option>
+            </select>
+            
+            <div class="form-check form-switch ms-md-3 mt-2 mt-md-0 d-none d-md-flex align-items-center bg-light px-3 py-1 rounded border">
+                <input class="form-check-input me-2" type="checkbox" id="switchVista" onchange="if(document.getElementById('switchVistaMovil')) document.getElementById('switchVistaMovil').checked = this.checked; cambiarDiseno();" style="transform: scale(1.3); cursor:pointer;">
+                <label class="form-check-label fw-bold text-dark mb-0 pt-1" for="switchVista" style="cursor:pointer; font-size:13px;">
+                    <i class="bi bi-view-list"></i> Vista Listado
+                </label>
             </div>
         </div>
     </div>
-</div>
 
-<div class="container pb-5">
-   
 
-    <div class="filter-bar sticky-desktop" style="border-top-left-radius: 0; border-top-right-radius: 0; border-top: 1px solid #eee;">
-        <div class="search-group">
-            <i class="bi bi-search search-icon"></i>
-            <input type="text" id="buscador" class="search-input" placeholder="Buscar nombre, código...">
-        </div>
 
-        <select id="filtroCat" class="filter-select">
-            <option value="todos">📦 Todas las Categorías</option>
-            <?php foreach($categorias as $c): ?>
-                <option value="<?php echo $c->id; ?>"><?php echo $c->nombre; ?></option>
-            <?php endforeach; ?>
-        </select>
-
-        <select id="filtroEstado" class="filter-select">
-            <option value="todos">⚡ Ver Todo</option>
-            <option value="activos">✅ Solo Activos</option>
-            <option value="pausados">⏸️ Pausados / Inactivos</option>
-            <option value="bajo_stock">⚠️ Stock Bajo</option>
-            <option value="vencimientos">📅 Por Vencer</option>
-        </select>
-
-        <select id="ordenarPor" class="filter-select">
-            <option value="recientes">📅 Recientes</option>
-            <option value="nombre_asc">A-Z Nombre</option>
-            <option value="precio_alto">💲 Mayor Precio</option>
-            <option value="precio_bajo">💲 Menor Precio</option>
-        </select>
-    </div>
-
-    <div class="d-flex justify-content-between align-items-center mb-3 px-2">
-        <small class="text-muted fw-bold"><span id="contadorVisible"><?php echo count($productos); ?></span> productos encontrados</small>
+    <div class="alert py-2 small mb-4 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
+        <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un producto para ver la ficha técnica y opciones
     </div>
 
     <div class="row g-4" id="gridProductos">
         <?php foreach($productos as $p): 
-            $img = !empty($p->imagen_url) ? $p->imagen_url : '';
-            // Cálculos
-            $stock = floatval($p->stock_actual);
-            $min = floatval($p->stock_minimo);
-            $max_ref = $min > 0 ? $min * 4 : 50; 
-            $pct = ($max_ref > 0) ? ($stock / $max_ref) * 100 : 0;
-            if($pct > 100) $pct = 100;
+            $stk = floatval($p['stock_actual']);
+            $min_ind = floatval($p['stock_minimo']);
+            $limite_visual = ($usar_global) ? $stock_critico_global : $min_ind;
+            $es_bajo_stock = ($p['tipo'] !== 'combo' && $stk <= $limite_visual);
+
+            $max_ref = $min_ind > 0 ? $min_ind * 4 : 50; 
+            $pct = ($max_ref > 0) ? ($stk / $max_ref) * 100 : 0;
+            $pct = $pct > 100 ? 100 : $pct;
             
-            // Color Barra
-            $colorBarra = '#198754'; // Verde
-            if($stock <= $min * 2) $colorBarra = '#ffc107'; // Amarillo
-            if($stock <= $min) $colorBarra = '#dc3545'; // Rojo
-            if($p->tipo === 'combo') $colorBarra = '#0d6efd'; // Azul Combo
+            $colorBarra = $stk <= $min_ind ? '#dc3545' : ($stk <= $min_ind * 2 ? '#ffc107' : '#198754');
+            if($p['tipo'] === 'combo') $colorBarra = '#0d6efd';
 
-            // Costos y Ganancia
-            $precioVenta = !empty($p->precio_oferta) && $p->precio_oferta > 0 ? $p->precio_oferta : $p->precio_venta;
-            $costo = floatval($p->precio_costo);
-            // Lógica simple para costo combo si es 0 (suma simple no incluida para no sobrecargar, se puede agregar)
-            $ganancia = $precioVenta - $costo;
-
-            // Filtros Data
-            $claseCard = $p->activo ? '' : 'opacity-50 grayscale';
-            $estadoData = $p->activo ? 'activos' : 'pausados';
-            if($stock <= $min && $p->tipo !== 'combo') $estadoData .= ' bajo_stock';
-
-            // AGREGADO: Lógica corregida para mostrar vencidos y por vencer
-if(!empty($p->fecha_vencimiento)) {
-    $f_venc = strtotime($p->fecha_vencimiento);
-    $f_hoy = strtotime(date('Y-m-d'));
-    $f_limite = strtotime("+$dias_venc days", $f_hoy);
-    
-    // Si la fecha de vencimiento es menor o igual al límite (incluye el pasado)
-    if($f_venc <= $f_limite) {
-        $estadoData .= ' vencimientos';
-    }
-}
-
-        ?>
-        <?php 
-            // Detectamos si es bajo stock para el filtro del banner
-            $es_bajo_stock = ($stock <= $min && $p->tipo !== 'combo');
+            $precioV = !empty($p['precio_oferta']) && $p['precio_oferta'] > 0 ? $p['precio_oferta'] : $p['precio_venta'];
+            $estadoData = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock ? ' bajo_stock' : '');
         ?>
         <div class="col-12 col-md-6 col-xl-3 item-grid <?php echo $es_bajo_stock ? 'row-bajo-stock' : ''; ?>"
-             data-nombre="<?php echo strtolower($p->descripcion); ?>" 
-             data-codigo="<?php echo strtolower($p->codigo_barras); ?>"
-             data-cat="<?php echo $p->id_categoria; ?>"
+             data-nombre="<?php echo strtolower($p['descripcion']); ?>" 
+             data-codigo="<?php echo strtolower($p['codigo_barras']); ?>"
+             data-cat="<?php echo $p['id_categoria']; ?>"
              data-estado="<?php echo $estadoData; ?>"
-             data-precio="<?php echo $p->precio_venta; ?>"
-             data-id="<?php echo $p->id; ?>">
+             data-precio="<?php echo $p['precio_venta']; ?>"
+             data-id="<?php echo $p['id']; ?>">
 
-            <div class="card-prod <?php echo $claseCard; ?>">
-                
+            <div class="card-prod <?php echo $p['activo'] ? '' : 'opacity-50 grayscale'; ?>" onclick="verFichaProducto(<?php echo $p['id']; ?>)" style="cursor:pointer;">
                 <div class="badge-top-left">
-                    <?php if(!empty($p->precio_oferta) && $p->precio_oferta > 0): ?>
-                        <div class="badge-offer"><i class="bi bi-fire"></i> OFERTA</div>
-                    <?php endif; ?>
-                    <?php if($stock <= $min && $p->tipo !== 'combo'): ?>
-                        <div class="badge bg-warning text-dark mt-1 shadow-sm" style="font-size:0.7rem; font-weight:700;"><i class="bi bi-exclamation-triangle-fill"></i> AGOTÁNDOSE</div>
-                    <?php endif; ?>
+                    <?php if($es_bajo_stock): ?><div class="badge bg-danger text-white mt-1 shadow-sm" style="font-size:0.6rem;">BAJO STOCK</div><?php endif; ?>
                 </div>
 
-                <div class="img-area" onclick="abrirCamara(<?php echo $p->id; ?>)">
-                    <?php if($img): ?>
-                        <img src="<?php echo $img; ?>" class="prod-img" id="img-<?php echo $p->id; ?>">
+                <div class="img-area">
+                    <?php if(!empty($p['imagen_url'])): ?>
+                        <img src="<?php echo $p['imagen_url']; ?>" class="prod-img" id="img-<?php echo $p['id']; ?>">
                     <?php else: ?>
                         <i class="bi bi-camera text-muted fs-1 opacity-25"></i>
                     <?php endif; ?>
                 </div>
 
                 <div class="card-body">
-                    <div class="cat-label"><?php echo $p->cat ?? 'SIN CATEGORÍA'; ?></div>
-                    <div class="prod-title text-truncate-2" title="<?php echo $p->descripcion; ?>">
-                        <?php echo $p->descripcion; ?>
-                    </div>
-                    <?php if($p->tipo === 'combo'): ?>
-                        <div class="prod-code text-primary fw-bold">COMBO-<?php echo $p->codigo_barras; ?></div>
-                    <?php else: ?>
-                        <div class="prod-code"><?php echo $p->codigo_barras; ?></div>
-                    <?php endif; ?>
-
-                    <div class="price-block">
-                        <?php if(!empty($p->precio_oferta) && $p->precio_oferta > 0): ?>
-                            <div class="price-old">$<?php echo number_format($p->precio_venta, 0, ',', '.'); ?></div>
-                            <div class="price-main">$<?php echo number_format($p->precio_oferta, 0, ',', '.'); ?></div>
-                        <?php else: ?>
-                            <div class="price-normal">$<?php echo number_format($p->precio_venta, 0, ',', '.'); ?></div>
-                        <?php endif; ?>
-                    </div>
+                    <div class="cat-label"><?php echo strtoupper($p['cat'] ?? 'GENERAL'); ?></div>
+                    <div class="prod-title text-truncate-2"><?php echo $p['descripcion']; ?></div>
+                    <div class="prod-code"><?php echo $p['codigo_barras']; ?></div>
+                    <div class="price-block"><div class="price-normal">$<?php echo number_format($precioV, 0, ',', '.'); ?></div></div>
                     
                     <div class="mt-auto">
-                        <div class="text-end mb-1">
-                             <span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;">
-                                 <?php echo $stock; ?> u.
-                             </span>
-                         </div>
+                        <div class="text-end mb-1"><span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;"><?php echo $stk; ?> u.</span></div>
+                        <div class="stock-progress"><div class="progress-fill" style="width: <?php echo $pct; ?>%; background-color: <?php echo $colorBarra; ?>;"></div></div>
 
-                        <div class="financial-box">
-                            <div>
-                                <span class="cost-label">Costo</span>
-                                <span class="cost-val">$<?php echo number_format($costo, 0, ',', '.'); ?></span>
+                        <div class="card-footer-actions mt-2 pt-2 border-top">
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" onclick="event.stopPropagation();" onchange="window.location.href='productos.php?toggle_id=<?php echo $p['id']; ?>&estado=<?php echo $p['activo']; ?>'" <?php echo $p['activo'] ? 'checked' : ''; ?>>
                             </div>
-                            <div>
-                                <span class="gain-label">Ganancia</span>
-                                <span class="gain-val">$<?php echo number_format($ganancia, 0, ',', '.'); ?></span>
-                            </div>
-                        </div>
-
-                        <div class="stock-progress">
-                            <div class="progress-fill" style="width: <?php echo $pct; ?>%; background-color: <?php echo $colorBarra; ?>;"></div>
-                        </div>
-
-                        <div class="card-footer-actions">
-                            <?php if($es_admin || in_array('toggle_producto', $permisos)): ?>
-                            <div class="form-check form-switch m-0" title="Activar / Desactivar">
-                                <input class="form-check-input" type="checkbox" 
-                                    onchange="window.location.href='productos.php?toggle_id=<?php echo $p->id; ?>&estado=<?php echo $p->activo; ?>'" 
-                                    <?php echo $p->activo ? 'checked' : ''; ?>>
-                            </div>
-                            <?php endif; ?>
-                            
                             <div class="d-flex gap-2 ms-auto">
-                                <?php if($es_admin || in_array('reponer_stock', $permisos)): ?>
-                                <button type="button" class="btn-action btn-wallet" title="Reponer Stock" onclick="reponerStock(<?php echo $p->id; ?>, '<?php echo addslashes($p->descripcion); ?>', <?php echo $stock; ?>)">
-                                    <i class="bi bi-plus-circle-fill"></i>
-                                </button>
-                                <?php endif; ?>
-
-                                <?php if($es_admin || in_array('editar_producto', $permisos)): ?>
-                                <a href="producto_formulario.php?id=<?php echo $p->id; ?>" class="btn-action btn-edit" title="Editar">
-                                    <i class="bi bi-pencil-fill"></i>
-                                </a>
-                                <?php endif; ?>
-                                <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
-                                <a href="productos.php?borrar=<?php echo $p->id; ?>&token=<?php echo isset($_SESSION['csrf_token']) ? $_SESSION['csrf_token'] : ''; ?>" class="btn-action" style="background-color: #dc3545; color: white; display: flex; align-items: center; justify-content: center; text-decoration: none;" title="Eliminar" onclick="return confirm('¿Estás seguro de que deseas eliminar este producto definitivamente?');">
-                                    <i class="bi bi-trash-fill"></i>
-                                </a>
-                                <?php endif; ?>
+                                <button type="button" class="btn-action btn-wallet" onclick="event.stopPropagation(); reponerStock(<?php echo $p['id']; ?>, '<?php echo addslashes($p['descripcion']); ?>', <?php echo $stk; ?>)"><i class="bi bi-plus-circle-fill"></i></button>
+                                <a href="producto_formulario.php?id=<?php echo $p['id']; ?>" class="btn-action btn-edit" onclick="event.stopPropagation();"><i class="bi bi-pencil-fill"></i></a>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+                </div>
+        <?php endforeach; ?>
+    </div>
+
+    <div id="listaCategorias" class="d-none mt-2">
+        <?php 
+        // Agrupamos los productos por categoría dinámicamente
+        $prod_cat = [];
+        foreach($productos as $p) {
+            $nc = strtoupper($p['cat'] ?? 'GENERAL');
+            $prod_cat[$nc][] = $p;
+        }
+        ksort($prod_cat); // Ordena alfabéticamente las categorías
+        foreach($prod_cat as $nom_cat => $items_cat):
+        ?>
+        <div class="card shadow-sm mb-4 seccion-categoria">
+            <div class="card-header bg-dark text-white fw-bold py-2">
+                <i class="bi bi-tags-fill me-2"></i> <?= $nom_cat ?> <span class="badge bg-secondary ms-2"><?= count($items_cat) ?> prod.</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm align-middle mb-0" style="font-size: 13px;">
+                                       <thead class="table-light">
+                        <tr>
+                            <th class="ps-3 d-none d-md-table-cell">CÓDIGO</th>
+                            <th>PRODUCTO</th>
+                            <th class="text-end">PRECIO</th>
+                            <th class="text-center">STOCK</th>
+                            <th class="text-center d-none d-md-table-cell">ESTADO</th>
+                            <th class="text-center">ACCIONES</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($items_cat as $p): 
+                            $estD = ($p['activo'] ? 'activos' : 'pausados');
+                            $pv = !empty($p['precio_oferta']) && $p['precio_oferta']>0 ? $p['precio_oferta'] : $p['precio_venta'];
+                        ?>
+                        <tr class="item-lista" data-nombre="<?= strtolower($p['descripcion']) ?>" data-codigo="<?= strtolower($p['codigo_barras']) ?>" data-cat="<?= $p['id_categoria'] ?>" data-estado="<?= $estD ?>">
+                            <td class="ps-3 text-muted d-none d-md-table-cell"><?= $p['codigo_barras'] ?></td>
+                            <td class="fw-bold" style="cursor:pointer; color: #102A57;" onclick="verFichaProducto(<?= $p['id'] ?>)">
+                                <?= $p['descripcion'] ?>
+                                <div class="d-md-none text-muted fw-normal mt-1" style="font-size: 10px;">Cód: <?= $p['codigo_barras'] ?></div>
+                            </td>
+                            <td class="text-end fw-bold text-success">$<?= number_format($pv, 2, ',', '.') ?></td>
+                            <td class="text-center fw-bold"><?= floatval($p['stock_actual']) ?> u.</td>
+                            <td class="text-center d-none d-md-table-cell">
+                                <div class="form-check form-switch m-0 d-flex justify-content-center">
+                                    <input class="form-check-input" type="checkbox" onchange="window.location.href='productos.php?toggle_id=<?= $p['id'] ?>&estado=<?= $p['activo'] ?>'" <?= $p['activo'] ? 'checked' : '' ?>>
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <div class="d-flex justify-content-center gap-1">
+                                    <button class="btn btn-sm btn-primary py-0 px-2" onclick="reponerStock(<?= $p['id'] ?>, '<?= addslashes($p['descripcion']) ?>', <?= floatval($p['stock_actual']) ?>)">+ Stock</button>
+                                    <a href="producto_formulario.php?id=<?= $p['id'] ?>" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-pencil"></i></a>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
         <?php endforeach; ?>
     </div>
 
-    <div id="noResults" class="text-center py-5 d-none">
-        <h5 class="text-muted">No se encontraron productos</h5>
-    </div>
 </div>
 
-<input type="file" id="inputImageRapido" accept="image/*" hidden>
-<div class="modal fade" id="modalCropRapido" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-body p-0"><div style="max-height:500px;"><img id="imageToCropRapido" style="max-width:100%;"></div></div>
-            <div class="modal-footer"><button type="button" class="btn btn-primary" id="btnGuardarFotoRapida">Guardar</button></div>
-        </div>
-    </div>
-</div>
 
-<script>
-    // 1. FILTRADO (Javascript puro, rápido)
-    const buscador = document.getElementById('buscador');
-    const filtroCat = document.getElementById('filtroCat');
-    const filtroEst = document.getElementById('filtroEstado');
-    const orden = document.getElementById('ordenarPor');
-    const grid = document.getElementById('gridProductos');
-    const noRes = document.getElementById('noResults');
-    const counter = document.getElementById('contadorVisible');
 
-    function aplicarFiltros() {
-        let txt = buscador.value.toLowerCase();
-        let cat = filtroCat.value;
-        let est = filtroEst.value;
-        let sort = orden.value;
-        
-        let items = Array.from(document.querySelectorAll('.item-grid'));
-        let visibles = 0;
-
-        items.forEach(item => {
-            let iNombre = item.dataset.nombre;
-            let iCodigo = item.dataset.codigo;
-            let iCat = item.dataset.cat;
-            let iEst = item.dataset.estado; 
-
-            let cumpleTxt = (iNombre.includes(txt) || iCodigo.includes(txt));
-            let cumpleCat = (cat === 'todos' || iCat === cat);
-            let cumpleEst = (est === 'todos' || iEst.includes(est));
-
-            if(cumpleTxt && cumpleCat && cumpleEst) {
-                item.classList.remove('d-none');
-                visibles++;
-            } else {
-                item.classList.add('d-none');
-            }
-        });
-
-        // Ordenamiento simple (DOM Reordering)
-        items.sort((a, b) => {
-            if(sort === 'nombre_asc') return a.dataset.nombre.localeCompare(b.dataset.nombre);
-            if(sort === 'precio_alto') return parseFloat(b.dataset.precio) - parseFloat(a.dataset.precio);
-            if(sort === 'precio_bajo') return parseFloat(a.dataset.precio) - parseFloat(b.dataset.precio);
-            return parseInt(b.dataset.id) - parseInt(a.dataset.id); // Recientes
-        });
-        items.forEach(item => grid.appendChild(item));
-
-        counter.innerText = visibles;
-        if(visibles === 0) noRes.classList.remove('d-none');
-        else noRes.classList.add('d-none');
-    }
-
-    buscador.addEventListener('keyup', aplicarFiltros);
-    filtroCat.addEventListener('change', aplicarFiltros);
-filtroEst.addEventListener('change', aplicarFiltros);
-orden.addEventListener('change', aplicarFiltros);
-    // Leer filtro de la URL al cargar la página
-const urlParams = new URLSearchParams(window.location.search);
-    const f = urlParams.get('filtro');
-    if(f) {
-        filtroEst.value = f;
-        aplicarFiltros();
-    }
-
-    // 2. FOTO RÁPIDA
-    let currentId = null;
-    let cropper;
-    const inputImg = document.getElementById('inputImageRapido');
-    const modalEl = document.getElementById('modalCropRapido');
-    const imgCrop = document.getElementById('imageToCropRapido');
-    const modalObj = new bootstrap.Modal(modalEl);
-
-    window.abrirCamara = function(id) { currentId = id; inputImg.click(); }
-    inputImg.addEventListener('change', function(e) {
-        if(e.target.files && e.target.files[0]) {
-            imgCrop.src = URL.createObjectURL(e.target.files[0]);
-            modalObj.show();
-            inputImg.value = '';
-        }
-    });
-    modalEl.addEventListener('shown.bs.modal', function() {
-        cropper = new Cropper(imgCrop, { aspectRatio: 1, viewMode: 1, autoCropArea: 0.9 });
-    });
-    modalEl.addEventListener('hidden.bs.modal', function() { if(cropper) { cropper.destroy(); cropper = null; } });
-
-    $('#btnGuardarFotoRapida').click(function() {
-        if(!cropper) return;
-        let canvas = cropper.getCroppedCanvas({ width: 800, height: 800 });
-        $.post('acciones/subir_foto_rapida.php', {
-            id_producto: currentId,
-            imagen_base64: canvas.toDataURL('image/png')
-        }, function(res) {
-            if(res.status === 'success') {
-                $('#img-' + currentId).attr('src', res.url + '?t=' + Date.now());
-                modalObj.hide();
-                Swal.fire({icon: 'success', title: 'Foto Actualizada', toast: true, position: 'top-end', showConfirmButton: false, timer: 2000});
-            } else {
-                Swal.fire('Error', res.msg, 'error');
-            }
-        }, 'json');
-    });
-    
-</script>
-<script>
-    let filtroActivo = false;
-
-    function filtrarStockBajo() {
-        const filas = document.querySelectorAll('.item-grid');
-        const widget = document.getElementById('widget-stock-bajo');
-        const label = widget.querySelector('.widget-label');
-        const value = widget.querySelector('.widget-value');
-        const iconBox = widget.querySelector('.icon-box');
-
-        filtroActivo = !filtroActivo;
-
-        filas.forEach(fila => {
-            if (filtroActivo) {
-                fila.style.display = fila.classList.contains('row-bajo-stock') ? '' : 'none';
-            } else {
-                fila.style.display = '';
-            }
-        });
-
-        if(filtroActivo) {
-            // ESTADO ACTIVO: Fondo amarillo fuerte y letras oscuras para contraste
-            widget.style.backgroundColor = "#ffc107";
-            widget.style.borderColor = "#ffc107";
-            label.style.color = "#000";
-            label.style.opacity = "1";
-            value.style.setProperty('color', '#000', 'important');
-            iconBox.style.backgroundColor = "rgba(0,0,0,0.1)";
-            iconBox.style.color = "#000";
-        } else {
-            // ESTADO INACTIVO: Vuelve al look transparente y letras blancas del banner
-            widget.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
-            widget.style.borderColor = "rgba(255, 255, 255, 0.2)";
-            label.style.color = "white";
-            label.style.opacity = "0.8";
-            value.style.setProperty('color', 'white', 'important');
-            iconBox.style.backgroundColor = "rgba(255, 255, 255, 0.1)";
-            iconBox.style.color = "white";
-        }
-    }
-    function verTodos() {
-        document.getElementById('buscador').value = '';
-        document.getElementById('filtroCat').value = 'todos';
-        document.getElementById('filtroEstado').value = 'todos';
-        
-        aplicarFiltros();
-
-        // Forzamos que si el widget de stock bajo estaba encendido, se apague y recupere su color azul/transparente
-        if (filtroActivo) {
-            filtrarStockBajo(); 
-        }
-    }
-
-    window.reponerStock = function(id, nombre, actual) {
-        // Preparamos el HTML de los proveedores desde PHP
-        let opcionesProvs = '<option value="">-- Seleccionar (Opcional) --</option>';
-        <?php foreach($proveedores_list as $pr): ?>
-            opcionesProvs += `<option value="<?php echo $pr->id; ?>"><?php echo addslashes($pr->empresa); ?></option>`;
-        <?php endforeach; ?>
-
-        Swal.fire({
-            title: 'Ingreso de Mercadería',
-            html: `
-                <div class="text-start">
-                    <p class="mb-3">Producto: <b class="text-primary">${nombre}</b><br>
-                    <small class="text-muted">Stock actual: ${actual} unidades</small></p>
-                    
+<div class="modal fade" id="modalReponerStock" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-box-arrow-in-down"></i> Ingreso Rápido de Stock</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form action="acciones/producto_stock_rapido.php" method="POST">
+                    <input type="hidden" name="id_producto" id="rep_id">
                     <div class="mb-3">
-                        <label class="form-label fw-bold small">CANTIDAD A SUMAR:</label>
-                        <input type="number" id="cant_reposicion" class="form-control form-control-lg text-center fw-bold border-primary" placeholder="0.00" step="0.001">
+                        <label class="small fw-bold text-muted">Producto</label>
+                        <input type="text" id="rep_nombre" class="form-control fw-bold bg-light" readonly>
                     </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">PROVEEDOR:</label>
-                        <select id="prov_reposicion" class="form-select">${opcionesProvs}</select>
-                    </div>
-
-                    <div class="mb-0">
-                        <label class="form-label fw-bold small">NUEVO COSTO UNITARIO (Opcional):</label>
-                        <div class="input-group">
-                            <span class="input-group-text">$</span>
-                            <input type="number" id="costo_reposicion" class="form-control" placeholder="Dejar vacío para no cambiar" step="0.01">
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="small fw-bold text-muted">Stock Actual</label>
+                            <input type="text" id="rep_actual" class="form-control text-center bg-light" readonly>
                         </div>
-                        <small class="text-muted" style="font-size:0.7rem">Si ingresas un costo, se actualizará en la ficha del producto.</small>
+                        <div class="col-6">
+                            <label class="small fw-bold text-success">Cantidad a Sumar</label>
+                            <input type="number" step="0.01" name="cantidad_sumar" id="rep_sumar" class="form-control border-success text-center fw-bold" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted">Proveedor (Opcional)</label>
+                        <select name="id_proveedor" class="form-select">
+                            <option value="">-- Sin cambios / No aplica --</option>
+                            <?php foreach($proveedores_list as $prov): ?>
+                                <option value="<?php echo $prov['id']; ?>"><?php echo htmlspecialchars($prov['empresa']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-6">
+                            <label class="small fw-bold text-muted">Actualizar Costo $</label>
+                            <input type="number" step="0.01" name="nuevo_costo" class="form-control text-center" placeholder="Opcional">
+                        </div>
+                        <div class="col-6">
+                            <label class="small fw-bold text-muted">Actualizar P. Venta $</label>
+                            <input type="number" step="0.01" name="nuevo_precio" class="form-control text-center" placeholder="Opcional">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 fw-bold py-2 shadow-sm"><i class="bi bi-check-lg"></i> GUARDAR INGRESO</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function reponerStock(id, nombre, actual) {
+    document.getElementById('rep_id').value = id;
+    document.getElementById('rep_nombre').value = nombre;
+    document.getElementById('rep_actual').value = actual;
+    document.getElementById('rep_sumar').value = '';
+    var modalStock = new bootstrap.Modal(document.getElementById('modalReponerStock'));
+    modalStock.show();
+    setTimeout(() => document.getElementById('rep_sumar').focus(), 500);
+}
+
+<?php
+// Carga de firmas para el modal JS (Idéntico a Devoluciones)
+
+$firmas_base64 = [];
+$res_f = $conexion->query("SELECT id FROM usuarios")->fetchAll(PDO::FETCH_ASSOC);
+foreach($res_f as $u) {
+    $path = "img/firmas/usuario_{$u['id']}.png";
+    if(file_exists($path)) $firmas_base64[$u['id']] = 'data:image/png;base64,' . base64_encode(file_get_contents($path));
+}
+?>
+const firmasB64 = <?php echo json_encode($firmas_base64); ?>;
+
+function verFichaProducto(id) {
+    Swal.fire({ title: 'Cargando ficha...', didOpen: () => { Swal.showLoading(); } });
+    fetch(`productos.php?ajax_get_producto=${id}`).then(r => r.json()).then(data => {
+        const p = data.producto; const c = data.conf; const owner = data.owner;
+        
+        // Lógica de Stock: Sin decimales para unidades, 3 para peso
+        let stockF = (p.stock_actual % 1 === 0) ? parseInt(p.stock_actual) : parseFloat(p.stock_actual).toFixed(3);
+        let linkPdf = window.location.origin + "/ticket_producto_pdf.php?id=" + p.id;
+        let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdf);
+        
+        // Firma del Dueño (Rompe el caché con ?v=timestamp)
+        let aclaracion = owner ? (owner.nombre_completo + " | " + owner.nombre_rol).toUpperCase() : 'GERENCIA AUTORIZADA';
+        let rutaFirma = owner ? `img/firmas/usuario_${owner.id}.png?v=${Date.now()}` : `img/firmas/firma_admin.png?v=${Date.now()}`;
+        let firmaHtml = `<img src="${rutaFirma}" style="max-height: 80px; margin-bottom: -25px;" onerror="this.style.display='none'"><br><div style="border-top:1px solid #000; width:100%; margin-top:5px;"></div><small style="font-size:9px; font-weight:bold;">${aclaracion}</small>`;
+
+        const html = `
+            <div id="printTicket" style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
+                <div style="text-align: center; border-bottom: 2px dashed #ccc; padding-bottom: 15px; margin-bottom: 15px;">
+                    ${c.logo_url ? `<img src="${c.logo_url}?v=${Date.now()}" style="max-height: 50px; margin-bottom: 10px;">` : ''}
+                    <h4 style="font-weight: 900; margin: 0; text-transform: uppercase;">${c.nombre_negocio}</h4>
+                    <small style="color: #666;">${c.direccion_local}</small>
+                </div>
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <h5 style="font-weight: 900; color: #102A57; letter-spacing: 1px; margin:0;">FICHA TÉCNICA PRODUCTO</h5>
+                    <span style="font-size: 10px; background: #eee; padding: 2px 6px; border-radius: 4px;">ID #${p.id}</span>
+                </div>
+                <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+                    <div style="margin-bottom: 4px;"><strong>ARTÍCULO:</strong> ${p.descripcion.toUpperCase()}</div>
+                    <div style="margin-bottom: 4px;"><strong>CÓDIGO:</strong> ${p.codigo_barras}</div>
+                    <div><strong>CATEGORÍA:</strong> ${p.cat_nom || 'GENERAL'}</div>
+                </div>
+                <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
+                    <span style="font-size: 1.1em; font-weight:800;">STOCK ACTUAL:</span>
+                    <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${stockF} u.</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
+                    <div style="width: 45%; text-align: center;">${firmaHtml}</div>
+                    <div style="width: 45%; text-align: center;">
+                        <a href="${linkPdf}" target="_blank"><img src="${qrUrl}" style="width: 75px; height: 75px; border: 1px solid #ddd; padding: 3px; border-radius: 5px;"></a>
                     </div>
                 </div>
-            `,
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonText: 'Confirmar Ingreso',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#102A57',
-            preConfirm: () => {
-                const cant = document.getElementById('cant_reposicion').value;
-                if (!cant || cant <= 0) {
-                    Swal.showValidationMessage('Debes ingresar una cantidad válida');
-                    return false;
-                }
-                return {
-                    id: id,
-                    cantidad: cant,
-                    id_proveedor: document.getElementById('prov_reposicion').value,
-                    nuevo_costo: document.getElementById('costo_reposicion').value
-                };
-            }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                $.post('ajax_stock_reposicion.php', result.value, function(res) {
-                    if(res.status === 'success') {
-                        Swal.fire({ icon: 'success', title: 'Operación Exitosa', text: res.msg, timer: 2000, showConfirmButton: false })
-                        .then(() => { location.reload(); });
-                    } else {
-                        Swal.fire('Error', res.msg, 'error');
-                    }
-                }, 'json');
-            }
-        });
-    }
-</script>
+            </div>
+            <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3 no-print">
+                <button class="btn btn-sm btn-outline-dark fw-bold" onclick="window.open('${linkPdf}', '_blank')">PDF</button>
+                <button class="btn btn-sm btn-success fw-bold" onclick="window.open('https://wa.me/?text=Ficha de ${p.descripcion}: ${linkPdf}', '_blank')">WA</button>
+                <button class="btn btn-sm btn-primary fw-bold" onclick="mandarMailProducto(${p.id})">EMAIL</button>
+            </div>`;
+        Swal.fire({ html: html, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
+    });
+}
 
-<?php require_once 'includes/layout_footer.php'; ?>
+function mandarMailProducto(id) {
+    Swal.fire({ title: 'Enviar Ficha', text: 'Email del destinatario:', input: 'email', showCancelButton: true, confirmButtonText: 'ENVIAR', confirmButtonColor: '#102A57' }).then((r) => {
+        if(r.isConfirmed && r.value) {
+            Swal.fire({ title: 'Enviando...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+            let f = new FormData(); f.append('id', id); f.append('email', r.value);
+            fetch('acciones/enviar_email_producto.php', { method: 'POST', body: f }).then(res => res.json()).then(d => {
+                Swal.fire(d.status === 'success' ? 'Enviado' : 'Error', d.msg || '', d.status);
+            });
+        }
+    });
+}
+
+function lanzarReporteFiltrado() {
+    let buscar = document.getElementById('buscador').value;
+    let cat = document.getElementById('filtroCat').value;
+    let est = document.getElementById('filtroEstado').value;
+    window.open(`reporte_productos.php?buscar=${buscar}&id_categoria=${cat}&filtro=${est}`, '_blank');
+} 
+
+function abrirModalCrear() {
+    Swal.fire({
+        title: '¿Qué desea crear?', showConfirmButton: false, showCloseButton: true,
+        html: `<div class="p-3">
+            <a href="producto_formulario.php" class="btn btn-outline-primary w-100 fw-bold py-3 mb-3 rounded-pill shadow-sm"><i class="bi bi-box-seam me-2"></i> PRODUCTO UNITARIO</a>
+            <a href="combos.php" class="btn btn-outline-info w-100 fw-bold py-3 rounded-pill shadow-sm"><i class="bi bi-stars me-2"></i> COMBO / PACK PROMO</a>
+        </div>`
+    });
+}
+
+function generarReporteCatalogo() {
+    Swal.fire({
+        title: 'Reporte de Catálogo', text: '¿Cómo desea recibir el inventario?', icon: 'info', showConfirmButton: false, showCloseButton: true,
+        footer: `<div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-dark fw-bold" onclick="window.open('ticket_catalogo_pdf.php', '_blank')">PDF</button>
+            <button class="btn btn-sm btn-primary fw-bold" onclick="enviarMailCatalogo()">EMAIL</button>
+        </div>`
+    });
+}
+
+function enviarMailCatalogo() {
+    Swal.fire({ title: 'Enviar Catálogo', input: 'email', showCancelButton: true, confirmButtonText: 'ENVIAR' }).then((r) => {
+        if(r.isConfirmed && r.value) {
+            Swal.fire({ title: 'Enviando...', didOpen: () => { Swal.showLoading(); }});
+            $.post('acciones/enviar_email_catalogo.php', { email: r.value }, function(res) {
+                Swal.fire(res.status === 'success' ? '¡Enviado!' : 'Error', res.msg, res.status);
+            }, 'json');
+        }
+    });
+}
+
+// NUEVA FUNCION: HACE EL CAMBIO DE VISTA AL APRETAR EL INTERRUPTOR
+function cambiarDiseno() {
+    let modoLista = document.getElementById('switchVista').checked;
+    if (modoLista) {
+        document.getElementById('gridProductos').classList.add('d-none');
+        document.getElementById('listaCategorias').classList.remove('d-none');
+    } else {
+        document.getElementById('gridProductos').classList.remove('d-none');
+        document.getElementById('listaCategorias').classList.add('d-none');
+    }
+}
+
+function aplicarFiltros() {
+    let txt = document.getElementById('buscador').value.toLowerCase();
+    let cat = document.getElementById('filtroCat').value;
+    let est = document.getElementById('filtroEstado').value;
+    
+    // Filtra las tarjetas normales
+    document.querySelectorAll('.item-grid').forEach(item => {
+        let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
+        let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
+        let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
+        if(cumpleTxt && cumpleCat && cumpleEst) { item.classList.remove('d-none'); } else { item.classList.add('d-none'); }
+    });
+
+    // Filtra las filas de las tablas
+    document.querySelectorAll('.item-lista').forEach(item => {
+        let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
+        let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
+        let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
+        if(cumpleTxt && cumpleCat && cumpleEst) { item.classList.remove('d-none'); } else { item.classList.add('d-none'); }
+    });
+
+    // Oculta la categoría entera si no quedaron productos visibles adentro por el buscador
+    document.querySelectorAll('.seccion-categoria').forEach(sec => {
+        let filasVisibles = sec.querySelectorAll('.item-lista:not(.d-none)').length;
+        if (filasVisibles === 0) { sec.classList.add('d-none'); } else { sec.classList.remove('d-none'); }
+    });
+}
+
+
+document.getElementById('buscador').addEventListener('keyup', aplicarFiltros);
+document.getElementById('filtroCat').addEventListener('change', aplicarFiltros);
+document.getElementById('filtroEstado').addEventListener('change', aplicarFiltros);
+
+function toggleFiltrosMovil() {
+    const wrapper = document.getElementById('wrapperFiltros');
+    const btn = document.querySelector('.btn-toggle-filters');
+    wrapper.classList.toggle('show');
+    if (wrapper.classList.contains('show')) {
+        btn.innerHTML = '<i class="bi bi-chevron-up"></i> OCULTAR FILTROS';
+        btn.classList.replace('btn-primary', 'btn-outline-primary');
+    } else {
+        btn.innerHTML = '<i class="bi bi-funnel-fill"></i> MOSTRAR FILTROS';
+        btn.classList.replace('btn-outline-primary', 'btn-primary');
+    }
+}
+</script>
+<?php include 'includes/layout_footer.php'; ?>

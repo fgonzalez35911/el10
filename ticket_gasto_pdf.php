@@ -22,7 +22,7 @@ if (!$mov) die('El comprobante no existe.');
 
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_OBJ);
 
-$pdf = new FPDF('P', 'mm', array(80, 210));
+$pdf = new FPDF('P', 'mm', array(80, 240));
 $pdf->AddPage();
 $pdf->SetMargins(4, 4, 4);
 $pdf->SetAutoPageBreak(true, 4);
@@ -71,14 +71,13 @@ $pdf->Cell(0, 1, "------------------------------------------", 0, 1, 'C');
 // FIRMA
 $pdf->Ln(8);
 $y_firma = $pdf->GetY();
-$ruta_firma = "img/firmas/firma_admin.png";
+$ruta_firma = "";
 
-// CORRECCIÓN: Si el usuario tiene firma propia, la usamos siempre (Prioridad)
 if (isset($mov->id_usuario) && $mov->id_usuario > 0 && file_exists("img/firmas/usuario_" . $mov->id_usuario . ".png")) {
     $ruta_firma = "img/firmas/usuario_" . $mov->id_usuario . ".png";
 }
 
-if (file_exists($ruta_firma)) {
+if (!empty($ruta_firma) && file_exists($ruta_firma)) {
     $pdf->Image($ruta_firma, 25, $y_firma, 30);
     $pdf->SetY($y_firma + 12);
 } else {
@@ -94,8 +93,9 @@ $aclaracion = strtoupper($n_op) . " | " . strtoupper($r_op);
 $pdf->Cell(0, 4, utf8_decode($aclaracion), 0, 1, 'C');
 
 // QR
-$pdf->Ln(4);
-$linkPdfPublico = "http://" . $_SERVER['HTTP_HOST'] . "/ticket_gasto_pdf.php?id=" . $id_mov . "&v=" . time();
+$pdf->Ln(2);
+$protocolo = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+$linkPdfPublico = $protocolo . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . "/ticket_gasto_pdf.php?id=" . $id_mov;
 $url_qr = "https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=1&data=" . urlencode($linkPdfPublico);
 $y_qr = $pdf->GetY();
 $pdf->Image($url_qr, 27, $y_qr, 26, 26, 'PNG');
