@@ -135,10 +135,15 @@ $es_admin = ($rol_usuario <= 2);
                         <li><a class="dropdown-item" href="historial_ventas.php"><i class="bi bi-receipt text-info"></i> Historial de Ventas</a></li>
                         <?php endif; ?>
 
+                        <?php if($es_admin || in_array('ver_transferencias', $permisos)): ?>
+                        <li><a class="dropdown-item" href="ver_transferencias_ia.php"><i class="bi bi-bank text-warning"></i> Transferencias (IA)</a></li>
+                        <?php endif; ?>
+
                         <?php if($es_admin || in_array('ver_devoluciones', $permisos)): ?>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="devoluciones.php"><i class="bi bi-arrow-counterclockwise text-danger"></i> Devoluciones</a></li>
                         <?php endif; ?>
+
                     </ul>
                 </li>
                 
@@ -152,6 +157,10 @@ $es_admin = ($rol_usuario <= 2);
 
                         <?php if($es_admin || in_array('ver_combos', $permisos)): ?>
                         <li><a class="dropdown-item" href="combos.php"><i class="bi bi-stars text-warning"></i> Pack de Oferta</a></li>
+                        <?php endif; ?>
+
+                        <?php if($es_admin || in_array('ver_productos', $permisos)): ?>
+                        <li><a class="dropdown-item" href="gestionar_taras.php"><i class="bi bi-box-seam-fill text-secondary"></i> Administrar Taras</a></li>
                         <?php endif; ?>
 
                         <?php if($es_admin || in_array('imprimir_etiquetas', $permisos)): ?>
@@ -173,7 +182,7 @@ $es_admin = ($rol_usuario <= 2);
                 </li>
                 <?php endif; ?>
 
-                <?php if($es_admin || in_array('ver_clientes', $permisos) || in_array('ver_canje_puntos', $permisos) || in_array('ver_encuestas', $permisos) || in_array('ver_premios', $permisos)): ?>
+                <?php if(($es_admin || in_array('ver_clientes', $permisos)) && ($configData['modulo_clientes'] ?? 1) == 1): ?>
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">CLUB DEL 10</a>
                     <ul class="dropdown-menu shadow-sm">
@@ -250,7 +259,7 @@ $es_admin = ($rol_usuario <= 2);
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">ADMIN</a>
                     <ul class="dropdown-menu shadow-sm">
-                        <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
+                        <?php if(($es_admin || in_array('ver_reportes', $permisos)) && ($configData['modulo_reportes'] ?? 1) == 1): ?>
                         <li><a class="dropdown-item" href="reportes.php"><i class="bi bi-bar-chart-fill text-primary"></i> Reportes</a></li>
                         <?php endif; ?>
 

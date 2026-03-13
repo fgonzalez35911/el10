@@ -9,7 +9,7 @@
     /* ICONO TRANSPARENTE DINÁMICO */
     .bg-icon-large { position: absolute; right: -15px; top: 50%; transform: translateY(-50%) rotate(-10deg); font-size: 14rem; color: rgba(255,255,255,0.15); pointer-events: none; z-index: 0; }
 
-    /* WIDGETS COMPACTOS Y SCROLL CELULAR (Idéntico a gastos.php) */
+    /* WIDGETS COMPACTOS Y SCROLL CELULAR */
     @media (max-width: 768px) {
         .row-widgets { display: flex !important; overflow-x: auto; flex-wrap: nowrap; gap: 8px; padding: 0 15px 10px 15px; margin-left: -15px; margin-right: -15px; -webkit-overflow-scrolling: touch; }
         .row-widgets .col-banner { min-width: 155px; flex: 0 0 auto; }
@@ -42,7 +42,7 @@
                        target="<?php echo $btn['target'] ?? '_self'; ?>" 
                        class="<?php echo $btn['class']; ?>" 
                        style="font-size: 0.75rem; padding: 3px 10px; letter-spacing: 0.5px; min-width: 80px;">
-                        
+                       
                         <?php if(!empty($btn['icono'])): ?>
                             <i class="bi <?php echo $btn['icono']; ?> me-1" style="font-size: 0.75rem;"></i>
                         <?php endif; ?>
@@ -74,3 +74,80 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const wrapperFiltros = document.getElementById('wrapperFiltros');
+    const btnToggleFiltros = document.querySelector('.btn-toggle-filters');
+    
+    if (!wrapperFiltros) return; 
+    if (document.getElementById('btnGridDesk')) return; 
+    
+    const pageName = window.location.pathname.split("/").pop().split("?")[0];
+    const userId = <?php echo isset($_SESSION['usuario_id']) ? $_SESSION['usuario_id'] : '0'; ?>;
+    const storageKey = `vista_lista_${userId}_${pageName}`;
+    
+    const prefGuardada = localStorage.getItem(storageKey);
+    const iniciarEnLista = (prefGuardada === 'true');
+
+    const switchDesktop = `
+        <div class="d-none d-md-flex align-items-center bg-white border rounded-pill p-1 shadow-sm ms-auto" style="min-width: max-content; height: 38px;">
+            <div class="btn-group" role="group">
+                <input type="radio" class="btn-check btn-check-grid" name="btnradioVistaDesk" id="btnGridDesk" autocomplete="off" ${!iniciarEnLista ? 'checked' : ''}>
+                <label class="btn btn-outline-primary border-0 rounded-pill btn-sm px-3 fw-bold m-0 d-flex align-items-center" for="btnGridDesk"><i class="bi bi-grid-fill me-1"></i> Tarjetas</label>
+
+                <input type="radio" class="btn-check btn-check-list" name="btnradioVistaDesk" id="btnListDesk" autocomplete="off" ${iniciarEnLista ? 'checked' : ''}>
+                <label class="btn btn-outline-primary border-0 rounded-pill btn-sm px-3 fw-bold m-0 d-flex align-items-center" for="btnListDesk"><i class="bi bi-list-ul me-1"></i> Lista</label>
+            </div>
+        </div>
+    `;
+
+    const switchMobile = `
+        <div class="d-flex d-md-none align-items-center bg-white border rounded-pill p-1 shadow-sm ms-2" style="flex-shrink: 0; height: 38px;">
+            <div class="btn-group" role="group">
+                <input type="radio" class="btn-check btn-check-grid" name="btnradioVistaMob" id="btnGridMob" autocomplete="off" ${!iniciarEnLista ? 'checked' : ''}>
+                <label class="btn btn-outline-primary border-0 rounded-pill btn-sm px-3 fw-bold m-0 d-flex align-items-center" for="btnGridMob"><i class="bi bi-grid-fill"></i></label>
+
+                <input type="radio" class="btn-check btn-check-list" name="btnradioVistaMob" id="btnListMob" autocomplete="off" ${iniciarEnLista ? 'checked' : ''}>
+                <label class="btn btn-outline-primary border-0 rounded-pill btn-sm px-3 fw-bold m-0 d-flex align-items-center" for="btnListMob"><i class="bi bi-list-ul"></i></label>
+            </div>
+        </div>
+    `;
+
+    wrapperFiltros.insertAdjacentHTML('beforeend', switchDesktop);
+    
+    if (btnToggleFiltros && btnToggleFiltros.parentElement) {
+        btnToggleFiltros.parentElement.insertAdjacentHTML('beforeend', switchMobile);
+    }
+
+    function actualizarVista(esLista) {
+        localStorage.setItem(storageKey, esLista);
+        
+        document.querySelectorAll('.btn-check-list').forEach(b => b.checked = esLista);
+        document.querySelectorAll('.btn-check-grid').forEach(b => b.checked = !esLista);
+        
+        const gridBox = document.getElementById('gridProductos') || document.querySelector('.row.g-4:not(.no-grid)');
+        const listaBox = document.getElementById('listaCategorias') || document.getElementById('vistaListaGenerica');
+        
+        if (gridBox && listaBox) {
+            if (esLista) {
+                gridBox.classList.add('d-none');
+                listaBox.classList.remove('d-none');
+            } else {
+                gridBox.classList.remove('d-none');
+                listaBox.classList.add('d-none');
+            }
+        }
+        if(typeof window.cambiarDiseno === "function") window.cambiarDiseno(esLista);
+    }
+
+    document.querySelectorAll('.btn-check-grid').forEach(btn => {
+        btn.addEventListener('change', () => actualizarVista(false));
+    });
+    document.querySelectorAll('.btn-check-list').forEach(btn => {
+        btn.addEventListener('change', () => actualizarVista(true));
+    });
+
+    setTimeout(() => { actualizarVista(iniciarEnLista); }, 50);
+});
+</script>
