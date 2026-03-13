@@ -52,6 +52,10 @@ try {
     $sqlCupones = "SELECT * FROM cupones WHERE activo = 1 AND (fecha_limite IS NULL OR fecha_limite >= CURDATE())";
     $cupones_db = $conexion->query($sqlCupones)->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) { $cupones_db = []; }
+
+try {
+    $taras_lista = $conexion->query("SELECT * FROM taras_predefinidas ORDER BY peso ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch(Exception $e) { $taras_lista = []; }
 ?>
 <?php require_once 'includes/layout_header.php'; ?>
 
@@ -564,7 +568,15 @@ try {
                 $('#idProdPesable').val(p.id);
                 $('#nombreProdPesable').text(p.descripcion);
                 $('#precioKgPesable').val(pFinal);
-                $('#inputTaraManual').val(p.tara_defecto || 0);
+                
+                let taraD = parseFloat(p.tara_defecto || 0).toFixed(3);
+                $('#inputTaraManual').val(taraD);
+                if($('#selectTaraRapida option[value="'+taraD+'"]').length > 0) { 
+                    $('#selectTaraRapida').val(taraD); 
+                } else { 
+                    $('#selectTaraRapida').val('0.000'); 
+                }
+
                 $('#inputPesoManual').val('');
                 $('#totalCalculadoPesable').text('$0.00');
                 var myModal = new bootstrap.Modal(document.getElementById('modalPesable'));
@@ -578,13 +590,11 @@ try {
             render(); $('#buscar-producto').val('').focus(); $('#lista-resultados').hide();
         };
 
-        $(document).on('input change', '#inputPesoManual, #inputTaraManual, #unidadMedidaPesable', function() {
+        $(document).on('input change', '#inputPesoManual, #inputTaraManual', function() {
             let pesoIngresado = parseFloat($('#inputPesoManual').val()) || 0;
             let tara = parseFloat($('#inputTaraManual').val()) || 0;
-            let unidad = $('#unidadMedidaPesable').val();
             let precioKg = parseFloat($('#precioKgPesable').val());
-            let pesoEnKg = (unidad === 'gr') ? (pesoIngresado / 1000) : pesoIngresado;
-            let pesoNeto = pesoEnKg - tara;
+            let pesoNeto = pesoIngresado - tara;
             if(pesoNeto < 0) pesoNeto = 0;
             $('#totalCalculadoPesable').text('$' + (pesoNeto * precioKg).toFixed(2));
         });
@@ -595,12 +605,11 @@ try {
             let precioKg = parseFloat($('#precioKgPesable').val());
             let pesoIngresado = parseFloat($('#inputPesoManual').val()) || 0;
             let tara = parseFloat($('#inputTaraManual').val()) || 0;
-            let unidad = $('#unidadMedidaPesable').val();
+            
             if(pesoIngresado <= 0) return Swal.fire('Atención', 'Ingrese un peso válido', 'warning');
             
-            let pesoEnKg = (unidad === 'gr') ? (pesoIngresado / 1000) : pesoIngresado;
-            let pesoNetoFinal = pesoEnKg - tara;
-            if(pesoNetoFinal < 0) pesoNetoFinal = 0;
+            let pesoNetoFinal = pesoIngresado - tara;
+            if(pesoNetoFinal <= 0) return Swal.fire('Atención', 'El peso debe ser mayor a la tara del envase', 'warning');
 
             let ex = carrito.find(i => i.id == idProd);
             if(ex) ex.cantidad += pesoNetoFinal; else carrito.push({id: idProd, descripcion: nombreProd, precio: precioKg, cantidad: pesoNetoFinal});
@@ -1237,21 +1246,20 @@ function abrirEscanerTransferencia(esSuma = false) {
       <div class="modal-body p-4">
         <input type="hidden" id="idProdPesable">
         <input type="hidden" id="precioKgPesable">
-        <div class="mb-3">
-            <label class="form-label fw-bold small text-muted">Unidad de Medida</label>
-            <select class="form-select form-select-lg" id="unidadMedidaPesable">
-                <option value="kg">Kilos (Ej: 1.250)</option>
-                <option value="gr">Gramos (Ej: 250)</option>
-            </select>
-        </div>
-        <div class="mb-3">
-            <label class="form-label fw-bold small text-muted">Peso en Balanza</label>
+        <div class="mb-3 mt-2">
+            <label class="form-label fw-bold small text-muted">Peso en Balanza (Kg) - Ej: 0.250 para 250gr</label>
             <input type="number" step="0.001" class="form-control form-control-lg text-center fw-bold text-success" id="inputPesoManual" placeholder="0.000" style="font-size: 2rem;">
         </div>
         <div class="row mb-3">
             <div class="col-6">
                 <label class="form-label fw-bold small text-muted">Descontar Tara (Kg)</label>
-                <input type="number" step="0.001" class="form-control" id="inputTaraManual" value="0.000">
+                <select class="form-select form-select-sm mb-1 border-secondary" id="selectTaraRapida" onchange="$('#inputTaraManual').val(this.value).trigger('change');">
+                    <option value="0.000">Sin envase (0.000)</option>
+                    <?php if(!empty($taras_lista)) { foreach($taras_lista as $t): ?>
+                        <option value="<?php echo $t['peso']; ?>"><?php echo htmlspecialchars($t['nombre']); ?> (<?php echo $t['peso']; ?> Kg)</option>
+                    <?php endforeach; } ?>
+                </select>
+                <input type="number" step="0.001" class="form-control fw-bold" id="inputTaraManual" value="0.000">
             </div>
             <div class="col-6 text-end">
                 <label class="form-label fw-bold small text-muted">Total a Cobrar</label>

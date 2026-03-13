@@ -132,24 +132,18 @@ include 'includes/componente_banner.php';
 
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
 
-        <div class="filter-bar sticky-desktop rounded-4">
+        <div class="filter-bar sticky-desktop rounded-4 p-3">
         
         <div class="d-flex gap-2 w-100 d-md-none mb-2">
-            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0" type="button" onclick="toggleFiltrosMovil()">
-                <i class="bi bi-funnel-fill"></i> FILTROS
+            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm" type="button" onclick="toggleFiltrosMovil()">
+                <i class="bi bi-funnel-fill"></i> MOSTRAR FILTROS
             </button>
-            <div class="form-check form-switch m-0 d-flex align-items-center justify-content-center bg-light px-2 rounded border flex-fill">
-                <input class="form-check-input me-2 mt-0" type="checkbox" id="switchVistaMovil" onchange="document.getElementById('switchVista').checked = this.checked; cambiarDiseno();" style="transform: scale(1.2); cursor:pointer;">
-                <label class="form-check-label fw-bold text-dark pt-1" for="switchVistaMovil" style="cursor:pointer; font-size:12px;">
-                    <i class="bi bi-view-list"></i> LISTA
-                </label>
-            </div>
         </div>
 
-        <div id="wrapperFiltros" class="filter-content-wrapper">
-            <div class="search-group">
+        <div id="wrapperFiltros" class="filter-content-wrapper mt-md-0 mt-2">
+            <div class="search-group flex-fill">
                 <i class="bi bi-search search-icon"></i>
-                <input type="text" id="buscador" class="search-input" placeholder="Buscar nombre, código...">
+                <input type="text" id="buscador" class="search-input w-100" placeholder="Buscar nombre, código...">
             </div>
             <select id="filtroCat" class="filter-select">
                 <option value="todos">📦 Todas las Categorías</option>
@@ -166,13 +160,6 @@ include 'includes/componente_banner.php';
                 <option value="nombre_asc">A-Z Nombre</option>
                 <option value="precio_alto">💲 Mayor Precio</option>
             </select>
-            
-            <div class="form-check form-switch ms-md-3 mt-2 mt-md-0 d-none d-md-flex align-items-center bg-light px-3 py-1 rounded border">
-                <input class="form-check-input me-2" type="checkbox" id="switchVista" onchange="if(document.getElementById('switchVistaMovil')) document.getElementById('switchVistaMovil').checked = this.checked; cambiarDiseno();" style="transform: scale(1.3); cursor:pointer;">
-                <label class="form-check-label fw-bold text-dark mb-0 pt-1" for="switchVista" style="cursor:pointer; font-size:13px;">
-                    <i class="bi bi-view-list"></i> Vista Listado
-                </label>
-            </div>
         </div>
     </div>
 
@@ -198,6 +185,16 @@ include 'includes/componente_banner.php';
 
             $precioV = !empty($p['precio_oferta']) && $p['precio_oferta'] > 0 ? $p['precio_oferta'] : $p['precio_venta'];
             $estadoData = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock ? ' bajo_stock' : '');
+            
+            // Formateo visual de stock para pesables
+            $txt_stock = $stk . " u.";
+            if ($p['tipo'] === 'pesable') {
+                $kilos = floor($stk);
+                $gramos = round(($stk - $kilos) * 1000);
+                if ($kilos > 0 && $gramos > 0) $txt_stock = $kilos . "kg " . $gramos . "gr";
+                else if ($kilos > 0) $txt_stock = $kilos . "kg";
+                else $txt_stock = $gramos . "gr";
+            }
         ?>
         <div class="col-12 col-md-6 col-xl-3 item-grid <?php echo $es_bajo_stock ? 'row-bajo-stock' : ''; ?>"
              data-nombre="<?php echo strtolower($p['descripcion']); ?>" 
@@ -227,7 +224,7 @@ include 'includes/componente_banner.php';
                     <div class="price-block"><div class="price-normal">$<?php echo number_format($precioV, 0, ',', '.'); ?></div></div>
                     
                     <div class="mt-auto">
-                        <div class="text-end mb-1"><span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;"><?php echo $stk; ?> u.</span></div>
+                        <div class="text-end mb-1"><span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;"><?php echo $txt_stock; ?></span></div>
                         <div class="stock-progress"><div class="progress-fill" style="width: <?php echo $pct; ?>%; background-color: <?php echo $colorBarra; ?>;"></div></div>
 
                         <div class="card-footer-actions mt-2 pt-2 border-top">
@@ -235,8 +232,8 @@ include 'includes/componente_banner.php';
                                 <input class="form-check-input" type="checkbox" onclick="event.stopPropagation();" onchange="window.location.href='productos.php?toggle_id=<?php echo $p['id']; ?>&estado=<?php echo $p['activo']; ?>'" <?php echo $p['activo'] ? 'checked' : ''; ?>>
                             </div>
                             <div class="d-flex gap-2 ms-auto">
-                                <button type="button" class="btn-action btn-wallet" onclick="event.stopPropagation(); reponerStock(<?php echo $p['id']; ?>, '<?php echo addslashes($p['descripcion']); ?>', <?php echo $stk; ?>)"><i class="bi bi-plus-circle-fill"></i></button>
-                                <a href="producto_formulario.php?id=<?php echo $p['id']; ?>" class="btn-action btn-edit" onclick="event.stopPropagation();"><i class="bi bi-pencil-fill"></i></a>
+                                <button type="button" class="btn-action btn-wallet" onclick="event.stopPropagation(); reponerStock(<?php echo $p['id']; ?>, '<?php echo addslashes($p['descripcion']); ?>', <?php echo $stk; ?>, '<?php echo $p['tipo']; ?>')"><i class="bi bi-plus-circle-fill"></i></button>
+                                <a href="<?php echo $p['tipo'] === 'combo' ? 'combos.php?editar_codigo='.trim($p['codigo_barras']).'&origen=productos' : 'producto_formulario.php?id='.$p['id']; ?>" class="btn-action btn-edit" onclick="event.stopPropagation();"><i class="bi bi-pencil-fill"></i></a>
                             </div>
                         </div>
                     </div>
@@ -263,20 +260,29 @@ include 'includes/componente_banner.php';
             </div>
             <div class="table-responsive">
                 <table class="table table-hover table-sm align-middle mb-0" style="font-size: 13px;">
-                                       <thead class="table-light">
+                    <thead class="table-light">
                         <tr>
-                            <th class="ps-3 d-none d-md-table-cell">CÓDIGO</th>
-                            <th>PRODUCTO</th>
-                            <th class="text-end">PRECIO</th>
-                            <th class="text-center">STOCK</th>
-                            <th class="text-center d-none d-md-table-cell">ESTADO</th>
-                            <th class="text-center">ACCIONES</th>
+                            <th class="ps-3 d-none d-md-table-cell" style="width: 15%;">CÓDIGO</th>
+                            <th style="width: 35%;">PRODUCTO</th>
+                            <th class="text-end" style="width: 15%;">PRECIO</th>
+                            <th class="text-center" style="width: 15%;">STOCK</th>
+                            <th class="text-center d-none d-md-table-cell" style="width: 10%;">ESTADO</th>
+                            <th class="text-center" style="width: 10%;">ACCIONES</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach($items_cat as $p): 
                             $estD = ($p['activo'] ? 'activos' : 'pausados');
                             $pv = !empty($p['precio_oferta']) && $p['precio_oferta']>0 ? $p['precio_oferta'] : $p['precio_venta'];
+                            $stk_lista = floatval($p['stock_actual']);
+                            $txt_stock_lista = $stk_lista . " u.";
+                            if ($p['tipo'] === 'pesable') {
+                                $kilos_l = floor($stk_lista);
+                                $gramos_l = round(($stk_lista - $kilos_l) * 1000);
+                                if ($kilos_l > 0 && $gramos_l > 0) $txt_stock_lista = $kilos_l . "kg " . $gramos_l . "gr";
+                                else if ($kilos_l > 0) $txt_stock_lista = $kilos_l . "kg";
+                                else $txt_stock_lista = $gramos_l . "gr";
+                            }
                         ?>
                         <tr class="item-lista" data-nombre="<?= strtolower($p['descripcion']) ?>" data-codigo="<?= strtolower($p['codigo_barras']) ?>" data-cat="<?= $p['id_categoria'] ?>" data-estado="<?= $estD ?>">
                             <td class="ps-3 text-muted d-none d-md-table-cell"><?= $p['codigo_barras'] ?></td>
@@ -285,7 +291,7 @@ include 'includes/componente_banner.php';
                                 <div class="d-md-none text-muted fw-normal mt-1" style="font-size: 10px;">Cód: <?= $p['codigo_barras'] ?></div>
                             </td>
                             <td class="text-end fw-bold text-success">$<?= number_format($pv, 2, ',', '.') ?></td>
-                            <td class="text-center fw-bold"><?= floatval($p['stock_actual']) ?> u.</td>
+                            <td class="text-center fw-bold"><?= $txt_stock_lista ?></td>
                             <td class="text-center d-none d-md-table-cell">
                                 <div class="form-check form-switch m-0 d-flex justify-content-center">
                                     <input class="form-check-input" type="checkbox" onchange="window.location.href='productos.php?toggle_id=<?= $p['id'] ?>&estado=<?= $p['activo'] ?>'" <?= $p['activo'] ? 'checked' : '' ?>>
@@ -293,8 +299,8 @@ include 'includes/componente_banner.php';
                             </td>
                             <td class="text-center">
                                 <div class="d-flex justify-content-center gap-1">
-                                    <button class="btn btn-sm btn-primary py-0 px-2" onclick="reponerStock(<?= $p['id'] ?>, '<?= addslashes($p['descripcion']) ?>', <?= floatval($p['stock_actual']) ?>)">+ Stock</button>
-                                    <a href="producto_formulario.php?id=<?= $p['id'] ?>" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-pencil"></i></a>
+                                    <button class="btn btn-sm btn-primary py-0 px-2" onclick="reponerStock(<?= $p['id'] ?>, '<?= addslashes($p['descripcion']) ?>', <?= floatval($p['stock_actual']) ?>, '<?= $p['tipo'] ?>')">+ Stock</button>
+                                    <a href="<?= $p['tipo'] === 'combo' ? 'combos.php?editar_codigo='.trim($p['codigo_barras']).'&origen=productos' : 'producto_formulario.php?id='.$p['id'] ?>" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-pencil"></i></a>
                                 </div>
                             </td>
                         </tr>
@@ -319,7 +325,7 @@ include 'includes/componente_banner.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4">
-                <form action="acciones/producto_stock_rapido.php" method="POST">
+                <form id="formStockRapido" onsubmit="enviarStockAjax(event)">
                     <input type="hidden" name="id_producto" id="rep_id">
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">Producto</label>
@@ -330,10 +336,18 @@ include 'includes/componente_banner.php';
                             <label class="small fw-bold text-muted">Stock Actual</label>
                             <input type="text" id="rep_actual" class="form-control text-center bg-light" readonly>
                         </div>
-                        <div class="col-6">
+                        <div class="col-6" id="div_rep_unitario">
                             <label class="small fw-bold text-success">Cantidad a Sumar</label>
-                            <input type="number" step="0.01" name="cantidad_sumar" id="rep_sumar" class="form-control border-success text-center fw-bold" required>
+                            <input type="number" step="0.01" name="cantidad_sumar" id="rep_sumar" class="form-control border-success text-center fw-bold">
                         </div>
+                        <div class="col-6" id="div_rep_pesable" style="display:none;">
+                            <label class="small fw-bold text-success">Kilos y Gramos</label>
+                            <div class="input-group">
+                                <input type="number" min="0" step="1" id="rep_kilos" class="form-control border-success text-center fw-bold" placeholder="Kg">
+                                <input type="number" min="0" step="1" id="rep_gramos" class="form-control border-success text-center fw-bold" placeholder="Gr">
+                            </div>
+                        </div>
+                        <input type="hidden" id="rep_tipo" value="unitario">
                     </div>
                     <div class="mb-3">
                         <label class="small fw-bold text-muted">Proveedor (Opcional)</label>
@@ -362,14 +376,88 @@ include 'includes/componente_banner.php';
 </div>
 
 <script>
-function reponerStock(id, nombre, actual) {
+function enviarStockAjax(e) {
+    e.preventDefault();
+    let fd = new FormData(e.target);
+    let datos = new FormData();
+    
+    let tipo = document.getElementById('rep_tipo').value;
+    let cantidadFinal = 0;
+    
+    if (tipo === 'pesable') {
+        let kg = parseFloat(document.getElementById('rep_kilos').value) || 0;
+        let gr = parseFloat(document.getElementById('rep_gramos').value) || 0;
+        cantidadFinal = kg + (gr / 1000);
+        if (cantidadFinal <= 0) {
+            Swal.fire('Atención', 'Ingresa una cantidad mayor a 0', 'warning');
+            return;
+        }
+    } else {
+        cantidadFinal = parseFloat(fd.get('cantidad_sumar')) || 0;
+        if (cantidadFinal <= 0) {
+            Swal.fire('Atención', 'Ingresa una cantidad válida', 'warning');
+            return;
+        }
+    }
+
+    datos.append('id', fd.get('id_producto'));
+    datos.append('cantidad', cantidadFinal);
+    datos.append('id_proveedor', fd.get('id_proveedor'));
+    datos.append('nuevo_costo', fd.get('nuevo_costo'));
+    datos.append('nuevo_precio', fd.get('nuevo_precio'));
+    
+    Swal.fire({ title: 'Guardando...', didOpen: () => { Swal.showLoading(); } });
+    fetch('ajax_stock_reposicion.php', { method: 'POST', body: datos })
+    .then(res => res.json())
+    .then(d => {
+        if(d.status === 'success') {
+            Swal.fire('Éxito', d.msg, 'success').then(() => location.reload());
+        } else {
+            Swal.fire('Error', d.msg, 'error');
+        }
+    }).catch(() => Swal.fire('Error', 'Hubo un problema de conexión.', 'error'));
+}
+
+function reponerStock(id, nombre, actual, tipo) {
     document.getElementById('rep_id').value = id;
     document.getElementById('rep_nombre').value = nombre;
-    document.getElementById('rep_actual').value = actual;
+    
+    // Formatear visualmente el stock actual en el input
+    let txtActual = actual + " u.";
+    if (tipo === 'pesable') {
+        let kilos = Math.floor(actual);
+        let gramos = Math.round((actual - kilos) * 1000);
+        if (kilos > 0 && gramos > 0) txtActual = kilos + "kg " + gramos + "gr";
+        else if (kilos > 0) txtActual = kilos + "kg";
+        else txtActual = gramos + "gr";
+    }
+    document.getElementById('rep_actual').value = txtActual;
+    
+    document.getElementById('rep_tipo').value = tipo;
+
+    // Resetear inputs
     document.getElementById('rep_sumar').value = '';
+    document.getElementById('rep_kilos').value = '';
+    document.getElementById('rep_gramos').value = '';
+
+    // Alternar visibilidad según tipo
+    if (tipo === 'pesable') {
+        document.getElementById('div_rep_unitario').style.display = 'none';
+        document.getElementById('rep_sumar').removeAttribute('required');
+        document.getElementById('div_rep_pesable').style.display = 'block';
+    } else {
+        document.getElementById('div_rep_pesable').style.display = 'none';
+        document.getElementById('div_rep_unitario').style.display = 'block';
+        document.getElementById('rep_sumar').setAttribute('required', 'required');
+    }
+
     var modalStock = new bootstrap.Modal(document.getElementById('modalReponerStock'));
     modalStock.show();
-    setTimeout(() => document.getElementById('rep_sumar').focus(), 500);
+    
+    setTimeout(() => {
+        if (tipo === 'pesable') document.getElementById('rep_kilos').focus();
+        else document.getElementById('rep_sumar').focus();
+    }, 500);
 }
 
 <?php
@@ -390,7 +478,15 @@ function verFichaProducto(id) {
         const p = data.producto; const c = data.conf; const owner = data.owner;
         
         // Lógica de Stock: Sin decimales para unidades, 3 para peso
-        let stockF = (p.stock_actual % 1 === 0) ? parseInt(p.stock_actual) : parseFloat(p.stock_actual).toFixed(3);
+        let stockF = (p.stock_actual % 1 === 0) ? parseInt(p.stock_actual) + " u." : parseFloat(p.stock_actual).toFixed(3) + " u.";
+        if (p.tipo === 'pesable') {
+            let stkFloat = parseFloat(p.stock_actual);
+            let kilos = Math.floor(stkFloat);
+            let gramos = Math.round((stkFloat - kilos) * 1000);
+            if (kilos > 0 && gramos > 0) stockF = kilos + "kg " + gramos + "gr";
+            else if (kilos > 0) stockF = kilos + "kg";
+            else stockF = gramos + "gr";
+        }
         let linkPdf = window.location.origin + "/ticket_producto_pdf.php?id=" + p.id;
         let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdf);
         
@@ -417,7 +513,7 @@ function verFichaProducto(id) {
                 </div>
                 <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
                     <span style="font-size: 1.1em; font-weight:800;">STOCK ACTUAL:</span>
-                    <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${stockF} u.</span>
+                    <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${stockF}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
                     <div style="width: 45%; text-align: center;">${firmaHtml}</div>
@@ -485,10 +581,8 @@ function enviarMailCatalogo() {
     });
 }
 
-// NUEVA FUNCION: HACE EL CAMBIO DE VISTA AL APRETAR EL INTERRUPTOR
-function cambiarDiseno() {
-    let modoLista = document.getElementById('switchVista').checked;
-    if (modoLista) {
+function cambiarDiseno(esLista) {
+    if (esLista) {
         document.getElementById('gridProductos').classList.add('d-none');
         document.getElementById('listaCategorias').classList.remove('d-none');
     } else {

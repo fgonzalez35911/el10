@@ -1,5 +1,5 @@
 <?php
-// reporte_devoluciones.php - REPORTE PDF CORPORATIVO
+// reporte_devoluciones.php - VERSIÓN VANGUARD PRO (FLUJO NATIVO + GRÁFICOS)
 session_start();
 $es_publico = isset($_GET['publico']) && $_GET['publico'] == '1';
 if (!isset($_SESSION['usuario_id']) && !$es_publico) { header("Location: index.php"); exit; }
@@ -13,29 +13,30 @@ try {
         'logo' => $conf['logo_url'] ?? '',
         'cuit' => $conf['cuit'] ?? 'S/D'
     ];
-    // 1. Datos de quien genera el reporte (Operador para el pie de página jsPDF)
+    
+    // 1. Datos del Operador
     $id_operador = $_SESSION['usuario_id'] ?? ($_GET['gen_by'] ?? 1);
     $u_op = $conexion->prepare("SELECT usuario FROM usuarios WHERE id = ?");
     $u_op->execute([$id_operador]);
     $operadorRow = $u_op->fetch(PDO::FETCH_ASSOC);
+    $usuario_actual = strtoupper($operadorRow['usuario'] ?? 'S/D');
 
-    // 2. Datos del Dueño para la Firma (Buscamos al usuario con rol 'dueño')
+    // 2. Datos del Dueño
     $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
                                  FROM usuarios u 
                                  JOIN roles r ON u.id_rol = r.id 
                                  WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
     $ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
-
-    // Respaldo por si no existe el rol 'dueño' en la tabla
     $firmante = $ownerRow ? $ownerRow : ['nombre_completo' => 'RESPONSABLE', 'nombre_rol' => 'AUTORIZADO', 'id' => 0];
 
-    // 3. Buscar la firma física del Dueño (usuario_ID.png)
+    // 3. Firma en Base64
     $firmaUsuario = ""; 
     if($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
-        $firmaUsuario = "img/firmas/usuario_{$ownerRow['id']}.png";
+        $firmaUsuario = 'data:image/png;base64,' . base64_encode(file_get_contents("img/firmas/usuario_{$ownerRow['id']}.png"));
     } elseif(file_exists("img/firmas/firma_admin.png")) {
-        $firmaUsuario = "img/firmas/firma_admin.png";
+        $firmaUsuario = 'data:image/png;base64,' . base64_encode(file_get_contents("img/firmas/firma_admin.png"));
     }
+
     $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
     $hasta = $_GET['hasta'] ?? date('Y-m-d');
     $buscar = $_GET['buscar'] ?? '';
@@ -52,6 +53,7 @@ try {
     if ($f_cliente !== '') { $condiciones[] = "v.id_cliente = ?"; $parametros[] = $f_cliente; }
     if ($f_usuario !== '') { $condiciones[] = "d.id_usuario = ?"; $parametros[] = $f_usuario; }
 
+    // Consulta general (sin cortes PHP)
     $sql = "SELECT d.*, p.descripcion, u.usuario 
             FROM devoluciones d 
             JOIN productos p ON d.id_producto = p.id 
@@ -64,12 +66,33 @@ try {
     $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $rango_texto = ($desde == $hasta) ? date('d/m/Y', strtotime($desde)) : date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta));
+    
+    // --- CÁLCULOS DE RESUMEN EJECUTIVO Y GRÁFICOS ---
     $totalReintegrado = 0;
+    $devoluciones_operador = [];
+    $motivos_devolucion = [];
+
+    foreach($registros as $reg) {
+        $monto = floatval($reg['monto_devuelto']);
+        $totalReintegrado += $monto;
+
+        // Para gráfico de barras
+        $usu = strtoupper($reg['usuario']);
+        if(!isset($devoluciones_operador[$usu])) { $devoluciones_operador[$usu] = 0; }
+        $devoluciones_operador[$usu] += $monto;
+
+        // Para gráfico circular
+        $motivo = strtoupper($reg['motivo'] ?? 'REINGRESO');
+        if(!isset($motivos_devolucion[$motivo])) { $motivos_devolucion[$motivo] = 0; }
+        $motivos_devolucion[$motivo]++;
+    }
+    arsort($devoluciones_operador);
+    arsort($motivos_devolucion);
 
     $url_actual = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
     if (strpos($url_actual, 'publico=1') === false) {
         $separador = parse_url($url_actual, PHP_URL_QUERY) ? '&' : '?';
-        $url_publica = $url_actual . $separador . 'publico=1&gen_by=' . $id_usuario;
+        $url_publica = $url_actual . $separador . 'publico=1&gen_by=' . $id_operador;
     } else {
         $url_publica = $url_actual;
     }
@@ -81,181 +104,317 @@ try {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte_Devoluciones</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <title>Reporte Devoluciones - Vanguard Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
         body { font-family: 'Roboto', sans-serif; background: #f0f0f0; margin: 0; padding: 20px; color: #333; }
+        .report-page { background: white; width: 100%; max-width: 210mm; margin: 0 auto; padding: 20px; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
         
-        .report-page {
-            background: white;
-            width: 100%;
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20px;
-            box-sizing: border-box;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-
         header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #102A57; padding-bottom: 10px; margin-bottom: 20px; }
-        .empresa-info h1 { margin: 0; font-size: 18pt; color: #102A57; }
+        .empresa-info h1 { margin: 0; font-size: 16pt; color: #102A57; text-transform: uppercase; font-weight: 900; }
         
-        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        table { width: 100%; border-collapse: collapse; min-width: 650px; }
-        th { background: #102A57; color: white; padding: 10px; text-align: left; font-size: 9pt; white-space: nowrap; }
-        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 9pt; vertical-align: middle; }
-        tr { page-break-inside: avoid; break-inside: avoid; }
+        /* ESTRUCTURA NATIVA PARA EVITAR CORTES */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; table-layout: fixed; }
+        th { background: #102A57; color: white !important; padding: 10px; text-align: left; font-size: 9pt; white-space: nowrap; }
+        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 8.5pt; vertical-align: top; word-wrap: break-word; }
         
-        .total-row td { border-top: 2px solid #102A57; font-weight: bold; font-size: 11pt; }
-        .footer-section { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+        thead { display: table-header-group; } 
+        .evitar-corte { page-break-inside: avoid; } 
+
+        .resumen-card { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
+        .footer-section { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
         .firma-area { width: 180px; text-align: center; }
         .firma-img { max-width: 150px; max-height: 80px; margin-bottom: -10px; }
-        .firma-linea { border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 9pt; }
+        .firma-linea { border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 8pt; text-transform: uppercase; }
+        
+        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; gap: 10px; }
+        .btn-descargar { background: #dc3545; color: white; padding: 15px 25px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 14px; }
+        .btn-compartir { background: #102A57; color: white; padding: 15px 25px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 14px; }
 
-        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
-        .btn-descargar { 
-            background: #dc3545; color: white; padding: 15px 30px; border-radius: 50px; 
-            border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-        }
-
-        @media (max-device-width: 768px) {
-            .no-print { left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; width: 90%; display: flex; justify-content: center; }
-            .btn-descargar { width: 100%; padding: 45px 20px; font-size: 45px; border-radius: 100px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
-        }
         @media screen { .report-page { margin-bottom: 30px; } }
     </style>
 </head>
 <body>
-    <div class="no-print"><button onclick="descargarPDF()" class="btn-descargar">📥 DESCARGAR REPORTE</button></div>
 
-    <div id="reporteContenido">
-        <?php 
-        $filas_por_pagina = 18;
-        $chunks = array_chunk($registros, $filas_por_pagina);
-        if(empty($chunks)) $chunks = [[]];
-        $total_paginas = count($chunks);
-        foreach($chunks as $index => $chunk):
-            $es_ultima_pagina = ($index == $total_paginas - 1);
-        ?>
-        <div class="report-page" style="<?php echo (!$es_ultima_pagina) ? 'page-break-after: always;' : ''; ?>">
-            <header>
-                <div style="width: 20%;">
-                    <?php if(!empty($negocio['logo'])): ?>
-                        <img src="<?php echo $negocio['logo']; ?>?v=<?php echo time(); ?>" style="max-height: 70px;">
-                    <?php endif; ?>
-                </div>
-                <div class="empresa-info" style="width: 50%; text-align: center;">
-                    <h1><?php echo strtoupper($negocio['nombre']); ?></h1>
-                    <p style="font-size: 9pt; margin: 3px 0;"><?php echo $negocio['direccion']; ?></p>
-                    <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
-                </div>
-                <div style="text-align: right; width: 30%; font-size: 8pt;">
-                    <strong>PERÍODO REPORTADO:</strong> <br><?php echo $rango_texto; ?><br>
-                    <strong>EMISIÓN:</strong> <?php echo date('d/m/Y H:i'); ?>
-                </div>
-            </header>
+    <div class="no-print">
+        <button onclick="descargarPDF()" class="btn-descargar"><i class="bi bi-file-pdf"></i> DESCARGAR PDF</button>
+        <button onclick="abrirModalCompartir()" class="btn-compartir"><i class="bi bi-share-fill"></i> COMPARTIR</button>
+    </div>
 
-            <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; text-transform: uppercase;">Detalle de Devoluciones y Reintegros</h3>
+    <div id="reporteContenido" class="report-page">
+        <table>
+            <thead>
+                <tr>
+                    <td colspan="6" style="border:none; padding:0; background:white;">
+                        <header>
+                            <div style="width: 20%; text-align: left;">
+                                <?php if(!empty($negocio['logo'])): ?>
+                                    <img src="<?php echo $negocio['logo']; ?>?v=<?php echo time(); ?>" style="max-height: 60px;">
+                                <?php endif; ?>
+                            </div>
+                            <div class="empresa-info" style="width: 50%; text-align: center;">
+                                <h1><?php echo strtoupper($negocio['nombre']); ?></h1>
+                                <p style="font-size: 9pt; margin: 3px 0; font-weight: bold; color: #555;"><?php echo $negocio['direccion']; ?></p>
+                                <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
+                            </div>
+                            <div style="text-align: right; width: 30%; font-size: 8pt; color: #333; font-weight: normal;">
+                                <strong>REPORTE DE DEVOLUCIONES</strong><br><?php echo $rango_texto; ?><br>
+                                <strong style="color:#102A57;">EMISIÓN: <?php echo date('d/m/Y H:i'); ?></strong>
+                            </div>
+                        </header>
+                        <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; margin-top:0; text-transform: uppercase; font-size: 11pt;">
+                            Detalle de Devoluciones y Reintegros
+                        </h3>
+                    </td>
+                </tr>
+                <tr>
+                    <th style="width: 15%;">FECHA</th>
+                    <th style="width: 15%;">OPERADOR</th>
+                    <th style="width: 15%;">TICKET ORIGEN</th>
+                    <th style="width: 30%;">PRODUCTO</th>
+                    <th style="width: 15%;">MOTIVO</th>
+                    <th style="width: 10%; text-align: right;">REINTEGRO</th>
+                </tr>
+            </thead>
+            
+            <tbody>
+                <?php if(count($registros) > 0): ?>
+                    <?php foreach($registros as $r): ?>
+                    <tr class="evitar-corte">
+                        <td><?php echo date('d/m/y H:i', strtotime($r['fecha'])); ?></td>
+                        <td style="font-weight: bold; color: #444;"><?php echo strtoupper($r['usuario']); ?></td>
+                        <td><span style="background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 8pt; font-weight: bold;">#<?php echo $r['id_venta_original']; ?></span></td>
+                        <td><strong><?php echo strtoupper($r['descripcion']); ?></strong><br><small style="color:#666;">Cant: <?php echo floatval($r['cantidad']); ?> u.</small></td>
+                        <td><?php echo $r['motivo'] ?? 'Reingreso'; ?></td>
+                        <td style="text-align: right; font-weight: bold; color:#dc3545;">-$<?php echo number_format($r['monto_devuelto'], 2, ',', '.'); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    
+                    <tr class="evitar-corte">
+                        <td colspan="6" style="text-align: center; padding: 40px 20px; color: #a0a0a0; border-top: 2px dashed #e0e0e0;">
+                            <i class="bi bi-arrow-return-left" style="font-size: 28pt; display: block; margin-bottom: 10px; color: #d0d0d0;"></i>
+                            <span style="font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Fin de Registros Operativos</span>
+                        </td>
+                    </tr>
+                <?php else: ?>
+                    <tr><td colspan="6" style="text-align:center; padding: 30px; color:#666;">No hubo devoluciones en este periodo.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
 
-            <div class="table-responsive">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>FECHA</th>
-                            <th>OPERADOR</th>
-                            <th>TICKET ORIGEN</th>
-                            <th>PRODUCTO</th>
-                            <th>MOTIVO</th>
-                            <th style="text-align: right;">REINTEGRO</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if(empty($chunk)): ?>
-                            <tr><td colspan="6" style="text-align:center; padding: 30px;">No hubo devoluciones en este periodo.</td></tr>
-                        <?php else: ?>
-                            <?php foreach($chunk as $r): 
-                                $totalReintegrado += $r['monto_devuelto'];
-                            ?>
-                            <tr>
-                                <td><?php echo date('d/m/y H:i', strtotime($r['fecha'])); ?></td>
-                                <td><?php echo strtoupper($r['usuario']); ?></td>
-                                <td>#<?php echo $r['id_venta_original']; ?></td>
-                                <td><?php echo strtoupper($r['descripcion']); ?> (<?php echo floatval($r['cantidad']); ?> u.)</td>
-                                <td><?php echo $r['motivo'] ?? 'Reingreso'; ?></td>
-                                <td style="text-align: right; font-weight: bold; color:#dc3545;">-$<?php echo number_format($r['monto_devuelto'], 2, ',', '.'); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                        
-                        <?php if($es_ultima_pagina): ?>
-                        <tr class="total-row">
-                            <td colspan="5" style="text-align: right;">TOTAL REINTEGRADO:</td>
-                            <td style="text-align: right; color: #dc3545;">-$<?php echo number_format($totalReintegrado, 2, ',', '.'); ?></td>
-                        </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
+        <?php if(count($registros) > 0): ?>
+        <div class="evitar-corte" style="margin-top: 30px;">
+            <div class="resumen-card">
+                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top:0; text-transform: uppercase; font-size: 11pt;">Resumen Ejecutivo de Reintegros</h4>
+                
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <div style="flex: 1; background: white; padding: 10px; border-radius: 5px; border: 1px solid #ddd; text-align: center;">
+                        <small style="color: #666; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Total de Operaciones</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #102A57;"><?php echo count($registros); ?></div>
+                    </div>
+                    <div style="flex: 1; background: #fdf2f2; padding: 10px; border-radius: 5px; border: 1px solid #dc3545; text-align: center;">
+                        <small style="color: #dc3545; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Impacto Total (Reintegros)</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #dc3545;">-$<?php echo number_format($totalReintegrado, 2, ',', '.'); ?></div>
+                    </div>
+                </div>
 
-            <?php if($es_ultima_pagina): ?>
-            <div class="footer-section">
-                <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.3;">
-                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente las operaciones de devolución y reintegros registradas en el sistema.</p>
-                </div>
-                <div style="width: 30%; text-align: center;">
-                    <img src="<?php echo $qr_url; ?>" style="width: 70px; height: 70px;" alt="QR Verificación">
-                    <p style="font-size: 7pt; margin-top: 5px; color:#666;">Verificar online</p>
-                </div>
-                <div class="firma-area" style="width: 30%;">
-                    <?php if(!empty($firmaUsuario)): ?>
-                        <img src="<?php echo $firmaUsuario; ?>?v=<?php echo time(); ?>" class="firma-img">
-                    <?php endif; ?>
-                    <div class="firma-linea">
-                        <?php 
-                            echo strtoupper($firmante['nombre_completo']) . " | " . strtoupper($firmante['nombre_rol']); 
-                        ?>
+                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top: 15px; text-transform: uppercase; font-size: 11pt;">Análisis Gráfico</h4>
+                
+                <div style="display: flex; justify-content: space-between; gap: 15px; width: 100%; box-sizing: border-box;">
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
+                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Reintegros por Operador ($)</strong>
+                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartOperador"></canvas></div>
+                    </div>
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
+                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Motivos de Devolución</strong>
+                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartMotivo"></canvas></div>
                     </div>
                 </div>
             </div>
-            <?php endif; ?>
+            
+            <script> 
+                const datosOperador = <?php echo json_encode($devoluciones_operador); ?>; 
+                const datosMotivos = <?php echo json_encode($motivos_devolucion); ?>; 
+            </script>
+
+            <div class="footer-section">
+                <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.4; text-align: justify;">
+                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente las operaciones de devolución de mercadería y reintegros de dinero registrados en el sistema. Su validez puede ser verificada escaneando el código QR.</p>
+                </div>
+                <div style="width: 30%; text-align: center;">
+                    <img src="<?php echo $qr_url; ?>" style="width: 75px; height: 75px; border: 1px solid #ccc; padding: 2px;">
+                    <p style="font-size: 7pt; margin-top: 5px; color:#666; font-weight: bold;">Escanear para Validar</p>
+                </div>
+                <div class="firma-area" style="width: 30%;">
+                    <?php if(!empty($firmaUsuario)): ?>
+                        <img src="<?php echo $firmaUsuario; ?>" class="firma-img">
+                    <?php else: ?>
+                        <div style="height: 60px;"></div>
+                    <?php endif; ?>
+                    <div class="firma-linea">
+                        <?php echo strtoupper($firmante['nombre_completo']); ?><br>
+                        <span style="font-size: 7pt; color: #555; font-weight: normal;"><?php echo strtoupper($firmante['nombre_rol']); ?></span>
+                    </div>
+                </div>
+            </div>
         </div>
-        <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
     <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        if(typeof datosOperador !== 'undefined' && Object.keys(datosOperador).length > 0) {
+            const allLabelsOp = Object.keys(datosOperador);
+            const labelsOp = allLabelsOp.slice(0, 6).map(l => l.length > 13 ? l.substring(0, 13) + '...' : l);
+            const dataOp = allLabelsOp.slice(0, 6).map(l => datosOperador[l]);
+
+            if(document.getElementById('chartOperador')) {
+                new Chart(document.getElementById('chartOperador'), {
+                    type: 'bar',
+                    data: { 
+                        labels: labelsOp, 
+                        datasets: [{ 
+                            label: 'Reintegro ($)', 
+                            data: dataOp, 
+                            backgroundColor: '#dc3545', // Rojo para simbolizar devoluciones
+                            borderRadius: 4,
+                            maxBarThickness: 35 
+                        }] 
+                    },
+                    options: { 
+                        layout: { padding: { bottom: 15 } },
+                        responsive: true, maintainAspectRatio: false, animation: false, 
+                        plugins: { legend: { display: false } }, 
+                        scales: { 
+                            x: { ticks: { font: { size: 8 }, maxRotation: 45, minRotation: 45 } },
+                            y: { beginAtZero: true, ticks: { font: { size: 8 } } } 
+                        } 
+                    }
+                });
+            }
+        }
+
+        if(typeof datosMotivos !== 'undefined' && Object.keys(datosMotivos).length > 0) {
+            const allLabelsMot = Object.keys(datosMotivos);
+            const labelsMot = allLabelsMot.slice(0, 6).map(l => l.length > 15 ? l.substring(0, 15) + '...' : l);
+            const dataMot = allLabelsMot.slice(0, 6).map(l => datosMotivos[l]);
+            
+            // Paleta de colores cálidos para devoluciones
+            const coloresMot = ['#dc3545', '#fd7e14', '#ffc107', '#102A57', '#6c757d', '#212529'];
+
+            if(document.getElementById('chartMotivo')) {
+                new Chart(document.getElementById('chartMotivo'), {
+                    type: 'doughnut',
+                    data: { 
+                        labels: labelsMot, 
+                        datasets: [{ data: dataMot, backgroundColor: coloresMot, borderWidth: 1 }] 
+                    },
+                    options: { 
+                        layout: { padding: { bottom: 10 } },
+                        responsive: true, maintainAspectRatio: false, animation: false, 
+                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 8 }, padding: 8 } } },
+                        cutout: '55%'
+                    }
+                });
+            }
+        }
+    });
+
+    // MÁRGENES DE TITANIO VANGUARD PRO
+    const optGlobal = { 
+        margin: [15, 10, 25, 10], // Margen inferior de 25mm para proteger el pie de página
+        filename: 'Reporte_Devoluciones_Corporativo.pdf', 
+        image: { type: 'jpeg', quality: 0.98 }, 
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
+        pagebreak: { mode: 'css', avoid: ['.evitar-corte'] }, 
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+    };
+
     function descargarPDF() {
         const element = document.getElementById('reporteContenido');
-        
-        const tableContainer = element.querySelector('.table-responsive');
-        if (tableContainer) tableContainer.style.overflowX = 'visible';
+        html2pdf().set(optGlobal).from(element).toPdf().get('pdf').then(function (pdf) { 
+            aplicarFormatoPaginas(pdf); 
+        }).save();
+    }
 
-        const opt = {
-            margin: [10, 10, 10, 10],
-            filename: 'Reporte_Devoluciones.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'], avoid: 'tr' }
-        };
-        
-        html2pdf().set(opt).from(element).toPdf().get('pdf').then(function (pdf) {
-            const totalPages = pdf.internal.getNumberOfPages();
-            for (let i = 1; i <= totalPages; i++) {
-                pdf.setPage(i);
-                
-                pdf.setDrawColor(200, 200, 200);
-                pdf.setLineWidth(0.5);
-                pdf.line(10, 282, 200, 282);
-                
-                pdf.setFontSize(8);
-                pdf.setTextColor(100, 100, 100);
-                pdf.text('Documento de Reporte de Devoluciones - <?php echo addslashes(strtoupper($negocio['nombre'])); ?>', 10, 287);
-                pdf.text('Emision: <?php echo date('d/m/Y H:i'); ?> | Op: <?php echo addslashes(strtoupper($operadorRow['usuario'] ?? 'S/D')); ?>', 105, 287, { align: 'center' });
-                pdf.text('Pagina ' + i + ' de ' + totalPages, 200, 287, { align: 'right' });
+    function aplicarFormatoPaginas(pdf) {
+        const totalPages = pdf.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            pdf.setPage(i);
+            
+            // Línea divisoria del Footer
+            pdf.setDrawColor(200, 200, 200); 
+            pdf.setLineWidth(0.5); 
+            pdf.line(10, 280, 200, 280);
+            
+            // Textos del pie de página
+            pdf.setFontSize(7.5); 
+            pdf.setTextColor(100, 100, 100);
+            
+            const textoEmpresa = '<?php echo addslashes(strtoupper($negocio['nombre'])); ?>';
+            const textoGenerador = '<?php echo addslashes($usuario_actual); ?>';
+            
+            pdf.text('Reporte de Devoluciones - ' + textoEmpresa, 10, 284);
+            pdf.text('Página ' + i + ' de ' + totalPages, 200, 284, { align: 'right' });
+            
+            pdf.text('Emisión: <?php echo date('d/m/Y H:i'); ?> | Solicitado por: ' + textoGenerador, 10, 288);
+
+            // Aviso de continuidad si no es la última hoja
+            if (i < totalPages) {
+                pdf.setFont('helvetica', 'italic'); 
+                pdf.setTextColor(150, 150, 150);
+                pdf.text('Continúa en la página siguiente...', 105, 278, { align: 'center' });
             }
-        }).save().then(() => {
-            if (tableContainer) tableContainer.style.overflowX = 'auto';
+        }
+    }
+
+    function abrirModalCompartir() {
+        Swal.fire({
+            title: 'Compartir Reporte',
+            text: '¿Cómo desea enviar este documento oficial?',
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: '<i class="bi bi-whatsapp"></i> WhatsApp',
+            confirmButtonColor: '#25D366',
+            denyButtonText: '<i class="bi bi-envelope"></i> Correo',
+            denyButtonColor: '#102A57',
+            showDenyButton: true,
+            cancelButtonText: 'Cerrar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const msj = `🔄 *REPORTE DE DEVOLUCIONES*\n🏢 <?php echo $negocio['nombre']; ?>\n📅 Período: <?php echo $rango_texto; ?>\n📄 Ver online: ${window.location.href}`;
+                window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
+            } else if (result.isDenied) {
+                enviarPorEmailReal();
+            }
         });
+    }
+
+    function enviarPorEmailReal() {
+        Swal.fire({
+            title: 'Enviar por Correo', input: 'email', inputPlaceholder: 'Ingrese el correo del destinatario...',
+            showCancelButton: true, confirmButtonText: 'ENVIAR AHORA', confirmButtonColor: '#102A57', showLoaderOnConfirm: true,
+            preConfirm: (email) => {
+                const element = document.getElementById('reporteContenido');
+                return html2pdf().set(optGlobal).from(element).toPdf().get('pdf').then(function(pdf) {
+                    aplicarFormatoPaginas(pdf); return pdf.output('blob');
+                }).then(blob => {
+                    let fData = new FormData();
+                    fData.append('email', email); fData.append('pdf_file', blob, 'Reporte_Devoluciones.pdf');
+                    return fetch('acciones/enviar_email_reporte_general.php', { method: 'POST', body: fData })
+                    .then(r => { if(!r.ok) throw new Error(r.statusText); return r.json(); })
+                    .catch(e => Swal.showValidationMessage(`Error: ${e}`));
+                });
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((r) => { if(r && r.isConfirmed && r.value && r.value.status === 'success') Swal.fire({ icon: 'success', title: '¡Enviado!', text: 'El reporte oficial ha sido enviado.' }); });
     }
     </script>
 </body>

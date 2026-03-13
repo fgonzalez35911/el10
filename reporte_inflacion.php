@@ -1,8 +1,8 @@
 <?php
-// reporte_inflacion.php - REPORTE PDF CORPORATIVO BLINDADO
+// reporte_inflacion.php - VERSIÓN VANGUARD PRO (FLUJO NATIVO + GRÁFICOS)
 session_start();
-if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
-
+$es_publico = isset($_GET['publico']) && $_GET['publico'] == '1';
+if (!isset($_SESSION['usuario_id']) && !$es_publico) { header("Location: index.php"); exit; }
 require_once 'includes/db.php';
 
 try {
@@ -14,33 +14,79 @@ try {
         'logo' => $conf['logo_url'] ?? ''
     ];
 
-    $id_operador_gen = $_SESSION['usuario_id'];
+    // 1. Datos del Operador
+    $id_operador_gen = $_SESSION['usuario_id'] ?? ($_GET['gen_by'] ?? 1);
     $u_op = $conexion->prepare("SELECT usuario FROM usuarios WHERE id = ?");
     $u_op->execute([$id_operador_gen]);
     $operadorRow = $u_op->fetch(PDO::FETCH_ASSOC);
+    $usuario_actual = strtoupper($operadorRow['usuario'] ?? 'S/D');
 
+    // 2. Datos del Dueño para Firma
     $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_rol 
                                  FROM usuarios u JOIN roles r ON u.id_rol = r.id 
                                  WHERE r.nombre = 'dueño' OR r.nombre = 'DUEÑO' LIMIT 1");
     $ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
     $firmante = $ownerRow ? $ownerRow : ['nombre_completo' => 'RESPONSABLE', 'nombre_rol' => 'AUTORIZADO', 'id' => 0];
 
+    // 3. Firma en Base64
     $firmaUsuario = ""; 
     if($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
-        $firmaUsuario = "img/firmas/usuario_{$ownerRow['id']}.png";
+        $firmaUsuario = 'data:image/png;base64,' . base64_encode(file_get_contents("img/firmas/usuario_{$ownerRow['id']}.png"));
     } elseif(file_exists("img/firmas/firma_admin.png")) {
-        $firmaUsuario = "img/firmas/firma_admin.png";
+        $firmaUsuario = 'data:image/png;base64,' . base64_encode(file_get_contents("img/firmas/firma_admin.png"));
     }
 
     $desde = $_GET['desde'] ?? date('Y-m-01');
     $hasta = $_GET['hasta'] ?? date('Y-m-t');
 
-    $sql = "SELECT h.*, u.usuario FROM historial_inflacion h LEFT JOIN usuarios u ON h.id_usuario = u.id WHERE DATE(h.fecha) >= ? AND DATE(h.fecha) <= ? ORDER BY h.fecha DESC";
+    // Consulta de Flujo Continuo
+    $sql = "SELECT h.*, u.usuario 
+            FROM historial_inflacion h 
+            LEFT JOIN usuarios u ON h.id_usuario = u.id 
+            WHERE DATE(h.fecha) >= ? AND DATE(h.fecha) <= ? 
+            ORDER BY h.fecha DESC";
     $stmt = $conexion->prepare($sql);
     $stmt->execute([$desde, $hasta]);
     $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $rango_texto = ($desde == $hasta) ? date('d/m/Y', strtotime($desde)) : date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta));
+
+    // --- CÁLCULOS ESTADÍSTICOS PARA RESUMEN Y GRÁFICOS ---
+    $total_eventos = count($registros);
+    $promedio_aumento = 0;
+    $sumatoria_porcentajes = 0;
+    
+    $inflacion_operador = [];
+    $rangos_aumento = ['Leve (0-10%)' => 0, 'Medio (11-30%)' => 0, 'Fuerte (+30%)' => 0];
+
+    foreach($registros as $r) {
+        $porcentaje = floatval($r['porcentaje']);
+        $sumatoria_porcentajes += $porcentaje;
+
+        // Agrupar para Gráfico de Barras (Operadores)
+        $usu = strtoupper($r['usuario'] ?? 'SISTEMA');
+        if(!isset($inflacion_operador[$usu])) { $inflacion_operador[$usu] = 0; }
+        $inflacion_operador[$usu]++;
+
+        // Agrupar para Gráfico Circular (Rangos)
+        if($porcentaje <= 10) { $rangos_aumento['Leve (0-10%)']++; }
+        elseif($porcentaje <= 30) { $rangos_aumento['Medio (11-30%)']++; }
+        else { $rangos_aumento['Fuerte (+30%)']++; }
+    }
+
+    if($total_eventos > 0) {
+        $promedio_aumento = $sumatoria_porcentajes / $total_eventos;
+    }
+    arsort($inflacion_operador);
+
+    $url_actual = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+    if (strpos($url_actual, 'publico=1') === false) {
+        $separador = parse_url($url_actual, PHP_URL_QUERY) ? '&' : '?';
+        $url_publica = $url_actual . $separador . 'publico=1&gen_by=' . $id_operador_gen;
+    } else {
+        $url_publica = $url_actual;
+    }
+    $qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=" . urlencode($url_publica);
 
 } catch (Exception $e) { die("Error: " . $e->getMessage()); }
 ?>
@@ -48,186 +94,315 @@ try {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=850">
-    <title>Reporte de Inflación</title>
+    <title>Reporte Inflación - Vanguard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
         body { font-family: 'Roboto', sans-serif; background: #f0f0f0; margin: 0; padding: 20px; color: #333; }
         .report-page { background: white; width: 100%; max-width: 210mm; margin: 0 auto; padding: 20px; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #102A57; color: white; padding: 10px; text-align: left; font-size: 9pt; white-space: nowrap; text-transform: uppercase; }
-        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 9pt; vertical-align: middle; }
-        .total-row td { border-top: 2px solid #102A57; font-weight: bold; font-size: 11pt; border-bottom: none; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #102A57; padding-bottom: 10px; margin-bottom: 20px; }
+        .empresa-info h1 { margin: 0; font-size: 16pt; color: #102A57; text-transform: uppercase; font-weight: 900; }
+        
+        /* ESTRUCTURA NATIVA PARA EVITAR CORTES DE TABLA */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 15px; table-layout: fixed; }
+        th { background: #102A57; color: white !important; padding: 10px; text-align: left; font-size: 9pt; white-space: nowrap; text-transform: uppercase; }
+        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 8.5pt; vertical-align: top; word-wrap: break-word; }
+        
+        thead { display: table-header-group; } 
+        .evitar-corte { page-break-inside: avoid; } 
+
+        .resumen-card { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 8px; }
         .footer-section { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
         .firma-area { width: 180px; text-align: center; }
         .firma-img { max-width: 150px; max-height: 80px; margin-bottom: -10px; }
-        .firma-linea { border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 9pt; }
-        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; }
-        .btn-descargar { background: #102A57; color: white; padding: 15px 30px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 16px; }
-        .salto-pagina { page-break-after: always; }
-        @media (max-device-width: 768px) {
-            .no-print { left: 50%; right: auto; transform: translateX(-50%); bottom: 40px; width: 90%; display: flex; justify-content: center; }
-            .btn-descargar { width: 100%; padding: 45px 20px; font-size: 40px; border-radius: 100px; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
-        }
+        .firma-linea { border-top: 1px solid #000; padding-top: 5px; font-weight: bold; font-size: 8pt; text-transform: uppercase; }
+        
+        .no-print { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; gap: 10px; }
+        .btn-descargar { background: #dc3545; color: white; padding: 15px 25px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 14px; }
+        .btn-compartir { background: #102A57; color: white; padding: 15px 25px; border-radius: 50px; border: none; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-size: 14px; }
+
         @media screen { .report-page { margin-bottom: 30px; } }
     </style>
 </head>
 <body>
 
     <div class="no-print">
-        <button onclick="descargarPDF()" class="btn-descargar">🚀 DESCARGAR REPORTE</button>
+        <button onclick="descargarPDF()" class="btn-descargar"><i class="bi bi-file-pdf"></i> DESCARGAR PDF</button>
+        <button onclick="abrirModalCompartir()" class="btn-compartir"><i class="bi bi-share-fill"></i> COMPARTIR</button>
     </div>
 
-    <div id="reporteContenido">
-        <?php 
-        // 1. CEREBRO DE PAGINACIÓN
-        $filas_maximas = 16; 
-        $filas_max_con_footer = 10; 
-        
-        $chunks = [];
-        $temp = [];
-        foreach ($registros as $index => $r) {
-            $temp[] = $r;
-            $faltan = count($registros) - 1 - $index;
+    <div id="reporteContenido" class="report-page">
+        <table>
+            <thead>
+                <tr>
+                    <td colspan="5" style="border:none; padding:0; background:white;">
+                        <header>
+                            <div style="width: 20%; text-align: left;">
+                                <?php if(!empty($negocio['logo'])): ?>
+                                    <img src="<?php echo $negocio['logo']; ?>?v=<?php echo time(); ?>" style="max-height: 60px;">
+                                <?php endif; ?>
+                            </div>
+                            <div class="empresa-info" style="width: 50%; text-align: center;">
+                                <h1><?php echo strtoupper($negocio['nombre']); ?></h1>
+                                <p style="font-size: 9pt; margin: 3px 0; font-weight: bold; color: #555;"><?php echo $negocio['direccion']; ?></p>
+                                <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
+                            </div>
+                            <div style="text-align: right; width: 30%; font-size: 8pt; color: #333; font-weight: normal;">
+                                <strong>REPORTE DE INFLACIÓN</strong><br><?php echo $rango_texto; ?><br>
+                                <strong style="color:#102A57;">EMISIÓN: <?php echo date('d/m/Y H:i'); ?></strong>
+                            </div>
+                        </header>
+                        <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; margin-top:0; text-transform: uppercase; font-size: 11pt;">
+                            Historial de Actualizaciones
+                        </h3>
+                    </td>
+                </tr>
+                <tr>
+                    <th style="width: 15%;">FECHA</th>
+                    <th style="width: 15%;">OPERADOR</th>
+                    <th style="width: 40%;">GRUPO AFECTADO</th>
+                    <th style="width: 15%; text-align: center;">ARTÍCULOS</th>
+                    <th style="width: 15%; text-align: right;">AUMENTO</th>
+                </tr>
+            </thead>
             
-            if (count($temp) == $filas_maximas && $faltan > 0) {
-                $chunks[] = $temp;
-                $temp = [];
-            }
-        }
-        if (!empty($temp)) {
-            if (count($temp) > $filas_max_con_footer && count($temp) > 1) {
-                $ultimo_gasto = array_pop($temp);
-                $chunks[] = $temp;
-                $chunks[] = [$ultimo_gasto];
-            } else {
-                $chunks[] = $temp;
-            }
-        }
-        if (empty($chunks)) $chunks = [[]]; 
-        
-        $total_paginas = count($chunks);
-        
-        // 2. DIBUJA CADA PÁGINA
-        foreach($chunks as $index => $chunk):
-            $es_ultima_pagina = ($index == $total_paginas - 1);
-        ?>
-        <div class="report-page <?php echo (!$es_ultima_pagina) ? 'salto-pagina' : ''; ?>">
-            <header style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #102A57; padding-bottom: 10px; margin-bottom: 20px;">
-                <div style="width: 20%;"><?php if(!empty($negocio['logo'])): ?><img src="<?php echo $negocio['logo']; ?>?v=<?php echo time(); ?>" style="max-height: 70px;"><?php endif; ?></div>
-                <div class="empresa-info" style="width: 50%; text-align: center;">
-                    <h1 style="margin: 0; font-size: 18pt; color: #102A57;"><?php echo strtoupper($negocio['nombre']); ?></h1>
-                    <p style="font-size: 9pt; margin: 3px 0;"><?php echo $negocio['direccion']; ?></p>
-                    <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
-                </div>
-                <div style="text-align: right; width: 30%; font-size: 8pt;">
-                    <strong>PERÍODO REPORTADO:</strong> <br><?php echo $rango_texto; ?><br>
-                    <strong>EMISIÓN:</strong> <?php echo date('d/m/Y H:i'); ?>
-                </div>
-            </header>
+            <tbody>
+                <?php if($total_eventos > 0): ?>
+                    <?php foreach($registros as $r): ?>
+                    <tr class="evitar-corte">
+                        <td><?php echo date('d/m/y H:i', strtotime($r['fecha'])); ?></td>
+                        <td style="font-weight: bold; color: #444;"><?php echo strtoupper($r['usuario']); ?></td>
+                        <td>
+                            <strong><?php echo strtoupper($r['grupo_afectado']); ?></strong><br>
+                            <small style="color:#666;"><?php echo $r['accion']=='COSTO'?'Impactó Costo y Venta':'Solo Venta'; ?></small>
+                        </td>
+                        <td style="text-align: center; font-weight: bold;"><?php echo $r['cantidad_productos']; ?> u.</td>
+                        <td style="text-align: right; font-weight: 900; color:#dc3545;">+<?php echo floatval($r['porcentaje']); ?>%</td>
+                    </tr>
+                    <?php endforeach; ?>
+                    
+                    <tr class="evitar-corte">
+                        <td colspan="5" style="text-align: center; padding: 40px 20px; color: #a0a0a0; border-top: 2px dashed #e0e0e0;">
+                            <i class="bi bi-graph-up-arrow" style="font-size: 28pt; display: block; margin-bottom: 10px; color: #d0d0d0;"></i>
+                            <span style="font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Fin de Registros de Inflación</span>
+                        </td>
+                    </tr>
+                <?php else: ?>
+                    <tr><td colspan="5" style="text-align:center; padding: 30px; color:#666;">No hubo registros de inflación en este periodo.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
 
-            <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; text-transform: uppercase;">Historial de Inflación Aplicada</h3>
+        <?php if($total_eventos > 0): ?>
+        <div class="evitar-corte" style="margin-top: 30px;">
+            <div class="resumen-card">
+                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top:0; text-transform: uppercase; font-size: 11pt;">Resumen Ejecutivo de Impacto</h4>
+                
+                <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                    <div style="flex: 1; background: white; padding: 10px; border-radius: 5px; border: 1px solid #ddd; text-align: center;">
+                        <small style="color: #666; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Total de Ajustes Realizados</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #102A57;"><?php echo $total_eventos; ?></div>
+                    </div>
+                    <div style="flex: 1; background: #fdf2f2; padding: 10px; border-radius: 5px; border: 1px solid #dc3545; text-align: center;">
+                        <small style="color: #dc3545; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Promedio General de Aumento</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #dc3545;">+<?php echo number_format($promedio_aumento, 2, ',', '.'); ?>%</div>
+                    </div>
+                </div>
 
-            <div class="table-responsive">
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 20%;">Fecha / Hora</th>
-                            <th style="width: 15%;">Operador</th>
-                            <th style="width: 35%;">Grupo Afectado</th>
-                            <th style="width: 15%;">Productos</th>
-                            <th style="width: 15%; text-align: right;">Aumento</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if(empty($chunk)): ?>
-                            <tr><td colspan="5" style="text-align:center; padding: 30px;">No hubo registros en este periodo.</td></tr>
-                        <?php else: ?>
-                            <?php foreach($chunk as $r): ?>
-                            <tr>
-                                <td><?php echo date('d/m/Y H:i', strtotime($r['fecha'])); ?></td>
-                                <td><?php echo strtoupper($r['usuario']); ?></td>
-                                <td>
-                                    <strong><?php echo strtoupper($r['grupo_afectado']); ?></strong><br>
-                                    <small style="color:#777;"><?php echo $r['accion']=='COSTO'?'Impactó Costo y Venta':'Solo Venta'; ?></small>
-                                </td>
-                                <td><?php echo $r['cantidad_productos']; ?> u.</td>
-                                <td style="text-align: right; font-weight: 900; color:#dc3545;">+<?php echo floatval($r['porcentaje']); ?>%</td>
-                            </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                        
-                        <?php if(!$es_ultima_pagina): ?>
-                        <tr>
-                            <td colspan="5" style="text-align: center; background-color: #f1f4f9; color: #666; font-size: 8.5pt; font-weight: bold; letter-spacing: 2px; padding: 15px 10px; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd;">
-                                --- SIN MÁS MOVIMIENTOS EN ESTA PÁGINA ---
-                            </td>
-                        </tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
+                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top: 15px; text-transform: uppercase; font-size: 11pt;">Análisis Gráfico</h4>
+                
+                <div style="display: flex; justify-content: space-between; gap: 15px; width: 100%; box-sizing: border-box;">
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
+                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Eventos por Operador</strong>
+                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartOperador"></canvas></div>
+                    </div>
+                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
+                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Intensidad de Aumentos</strong>
+                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartRangos"></canvas></div>
+                    </div>
+                </div>
             </div>
+            
+            <script> 
+                const datosOperador = <?php echo json_encode($inflacion_operador); ?>; 
+                const datosRangos = <?php echo json_encode($rangos_aumento); ?>; 
+            </script>
 
-            <?php if($es_ultima_pagina): ?>
             <div class="footer-section">
-                <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.3;">
-                    <p><strong>DECLARACIÓN JURADA:</strong> Documento generado por Vanguard POS. Refleja las actualizaciones masivas de precios realizadas en el período seleccionado.</p>
+                <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.4; text-align: justify;">
+                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente las actualizaciones masivas de precios ejecutadas en el sistema para combatir el impacto inflacionario. Su validez puede ser verificada escaneando el código QR.</p>
                 </div>
                 <div style="width: 30%; text-align: center;">
-                    <img src="<?php echo "https://api.qrserver.com/v1/create-qr-code/?size=70x70&margin=0&data=" . urlencode((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]/reporte_inflacion.php?publico=1&gen_by=" . $id_operador_gen); ?>" style="width: 70px; height: 70px;" alt="QR Verificación">
-                    <p style="font-size: 7pt; margin-top: 5px; color:#666;">Verificar online</p>
+                    <img src="<?php echo $qr_url; ?>" style="width: 75px; height: 75px; border: 1px solid #ccc; padding: 2px;">
+                    <p style="font-size: 7pt; margin-top: 5px; color:#666; font-weight: bold;">Escanear para Validar</p>
                 </div>
                 <div class="firma-area" style="width: 30%;">
-                    <?php if(!empty($firmaUsuario)): ?><img src="<?php echo $firmaUsuario; ?>" class="firma-img"><?php endif; ?>
-                    <div class="firma-linea"><?php echo strtoupper($firmante['nombre_completo']) . " | " . strtoupper($firmante['nombre_rol']); ?></div>
+                    <?php if(!empty($firmaUsuario)): ?>
+                        <img src="<?php echo $firmaUsuario; ?>" class="firma-img">
+                    <?php else: ?>
+                        <div style="height: 60px;"></div>
+                    <?php endif; ?>
+                    <div class="firma-linea">
+                        <?php echo strtoupper($firmante['nombre_completo']); ?><br>
+                        <span style="font-size: 7pt; color: #555; font-weight: normal;"><?php echo strtoupper($firmante['nombre_rol']); ?></span>
+                    </div>
                 </div>
             </div>
-            <?php endif; ?>
         </div>
-        <?php endforeach; ?>
+        <?php endif; ?>
     </div>
 
     <script>
-    function descargarPDF() {
-        const btn = document.querySelector('.btn-descargar');
-        const element = document.getElementById('reporteContenido');
-        
-        btn.innerHTML = "⌛ PROCESANDO...";
-        btn.disabled = true;
-        window.scrollTo(0, 0);
+    document.addEventListener("DOMContentLoaded", function() {
+        // Gráfico de Barras: Ajustes por Operador
+        if(typeof datosOperador !== 'undefined' && Object.keys(datosOperador).length > 0) {
+            const allLabelsOp = Object.keys(datosOperador);
+            const labelsOp = allLabelsOp.slice(0, 6).map(l => l.length > 13 ? l.substring(0, 13) + '...' : l);
+            const dataOp = allLabelsOp.slice(0, 6).map(l => datosOperador[l]);
 
-        const opt = {
-            margin: 0,
-            filename: 'Reporte_Inflacion_<?php echo date('d_m_Y'); ?>.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        
-        html2pdf().set(opt).from(element).toPdf().get('pdf').then(function (pdf) {
-            const totalPages = pdf.internal.getNumberOfPages();
-            for (let i = 1; i <= totalPages; i++) {
-                pdf.setPage(i);
-                pdf.setDrawColor(16, 42, 87); // #102A57 Azul Vanguard
-                pdf.setLineWidth(0.5);
-                pdf.line(10, 282, 200, 282);
-                pdf.setFontSize(8);
-                pdf.setTextColor(100, 100, 100);
-                pdf.text('Documento de Reporte de Inflacion - <?php echo addslashes(strtoupper($negocio['nombre'])); ?>', 10, 287);
-                pdf.text('Emision: <?php echo date('d/m/Y H:i'); ?> | Op: <?php echo addslashes(strtoupper($operadorRow['usuario'] ?? 'S/D')); ?>', 105, 287, { align: 'center' });
-                pdf.text('Pagina ' + i + ' de ' + totalPages, 200, 287, { align: 'right' });
-                
-                if (i < totalPages) {
-                    pdf.setFont('helvetica', 'italic');
-                    pdf.setTextColor(150, 150, 150);
-                    pdf.text('Continúa en la página siguiente...', 105, 275, { align: 'center' });
-                }
+            if(document.getElementById('chartOperador')) {
+                new Chart(document.getElementById('chartOperador'), {
+                    type: 'bar',
+                    data: { 
+                        labels: labelsOp, 
+                        datasets: [{ 
+                            label: 'Ajustes', 
+                            data: dataOp, 
+                            backgroundColor: '#102A57', 
+                            borderRadius: 4,
+                            maxBarThickness: 35 
+                        }] 
+                    },
+                    options: { 
+                        layout: { padding: { bottom: 15 } },
+                        responsive: true, maintainAspectRatio: false, animation: false, 
+                        plugins: { legend: { display: false } }, 
+                        scales: { 
+                            x: { ticks: { font: { size: 8 }, maxRotation: 45, minRotation: 45 } },
+                            y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 8 } } } 
+                        } 
+                    }
+                });
             }
-        }).save().then(() => {
-            btn.innerHTML = "🚀 DESCARGAR REPORTE";
-            btn.disabled = false;
+        }
+
+        // Gráfico Circular: Intensidad de Aumentos
+        if(typeof datosRangos !== 'undefined') {
+            const labelsRangos = Object.keys(datosRangos);
+            const dataRangos = labelsRangos.map(l => datosRangos[l]);
+            
+            // Colores: Verde (Leve), Amarillo (Medio), Rojo (Fuerte)
+            const coloresRangos = ['#198754', '#ffc107', '#dc3545'];
+
+            const totalRangos = dataRangos.reduce((a, b) => a + b, 0);
+
+            if(document.getElementById('chartRangos') && totalRangos > 0) {
+                new Chart(document.getElementById('chartRangos'), {
+                    type: 'doughnut',
+                    data: { 
+                        labels: labelsRangos, 
+                        datasets: [{ data: dataRangos, backgroundColor: coloresRangos, borderWidth: 1 }] 
+                    },
+                    options: { 
+                        layout: { padding: { bottom: 10 } },
+                        responsive: true, maintainAspectRatio: false, animation: false, 
+                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 8 }, padding: 8 } } },
+                        cutout: '55%'
+                    }
+                });
+            }
+        }
+    });
+
+    // MÁRGENES DE TITANIO VANGUARD PRO
+    const optGlobal = { 
+        margin: [15, 10, 25, 10], 
+        filename: 'Reporte_Inflacion_Corporativo.pdf', 
+        image: { type: 'jpeg', quality: 0.98 }, 
+        html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
+        pagebreak: { mode: 'css', avoid: ['.evitar-corte'] }, 
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+    };
+
+    function descargarPDF() {
+        const element = document.getElementById('reporteContenido');
+        html2pdf().set(optGlobal).from(element).toPdf().get('pdf').then(function (pdf) { 
+            aplicarFormatoPaginas(pdf); 
+        }).save();
+    }
+
+    function aplicarFormatoPaginas(pdf) {
+        const totalPages = pdf.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            pdf.setPage(i);
+            pdf.setDrawColor(200, 200, 200); 
+            pdf.setLineWidth(0.5); 
+            pdf.line(10, 280, 200, 280);
+            pdf.setFontSize(7.5); 
+            pdf.setTextColor(100, 100, 100);
+            
+            const textoEmpresa = '<?php echo addslashes(strtoupper($negocio['nombre'])); ?>';
+            const textoGenerador = '<?php echo addslashes($usuario_actual); ?>';
+            
+            pdf.text('Reporte de Inflación - ' + textoEmpresa, 10, 284);
+            pdf.text('Página ' + i + ' de ' + totalPages, 200, 284, { align: 'right' });
+            pdf.text('Emisión: <?php echo date('d/m/Y H:i'); ?> | Solicitado por: ' + textoGenerador, 10, 288);
+
+            if (i < totalPages) {
+                pdf.setFont('helvetica', 'italic'); 
+                pdf.setTextColor(150, 150, 150);
+                pdf.text('Continúa en la página siguiente...', 105, 278, { align: 'center' });
+            }
+        }
+    }
+
+    function abrirModalCompartir() {
+        Swal.fire({
+            title: 'Compartir Reporte',
+            text: '¿Cómo desea enviar este documento oficial?',
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: '<i class="bi bi-whatsapp"></i> WhatsApp',
+            confirmButtonColor: '#25D366',
+            denyButtonText: '<i class="bi bi-envelope"></i> Correo',
+            denyButtonColor: '#102A57',
+            showDenyButton: true,
+            cancelButtonText: 'Cerrar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const msj = `📈 *REPORTE DE INFLACIÓN APLICADA*\n🏢 <?php echo $negocio['nombre']; ?>\n📅 Período: <?php echo $rango_texto; ?>\n📄 Ver online: ${window.location.href}`;
+                window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
+            } else if (result.isDenied) {
+                enviarPorEmailReal();
+            }
         });
+    }
+
+    function enviarPorEmailReal() {
+        Swal.fire({
+            title: 'Enviar por Correo', input: 'email', inputPlaceholder: 'Ingrese el correo del destinatario...',
+            showCancelButton: true, confirmButtonText: 'ENVIAR AHORA', confirmButtonColor: '#102A57', showLoaderOnConfirm: true,
+            preConfirm: (email) => {
+                const element = document.getElementById('reporteContenido');
+                return html2pdf().set(optGlobal).from(element).toPdf().get('pdf').then(function(pdf) {
+                    aplicarFormatoPaginas(pdf); return pdf.output('blob');
+                }).then(blob => {
+                    let fData = new FormData();
+                    fData.append('email', email); fData.append('pdf_file', blob, 'Reporte_Inflacion.pdf');
+                    return fetch('acciones/enviar_email_reporte_general.php', { method: 'POST', body: fData })
+                    .then(r => { if(!r.ok) throw new Error(r.statusText); return r.json(); })
+                    .catch(e => Swal.showValidationMessage(`Error: ${e}`));
+                });
+            },
+            allowOutsideClick: () => !Swal.isLoading()
+        }).then((r) => { if(r && r.isConfirmed && r.value && r.value.status === 'success') Swal.fire({ icon: 'success', title: '¡Enviado!', text: 'El reporte oficial ha sido enviado.' }); });
     }
     </script>
 </body>
