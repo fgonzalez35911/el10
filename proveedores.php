@@ -1,5 +1,5 @@
 <?php
-// proveedores.php - VERSIÓN CON CANDADOS DE SEGURIDAD
+// proveedores.php - VERSIÓN VANGUARD PRO TOTAL (ESTANDARIZADO + PEDIDO SUGERIDO)
 session_start();
 require_once 'includes/db.php';
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
@@ -7,21 +7,24 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($_SESSION['rol'] <= 2);
 
-// Candado: Acceso a la página
 if (!$es_admin && !in_array('ver_proveedores', $permisos)) { 
     header("Location: dashboard.php"); exit; 
 }
 
-$color_sistema = '#102A57';
-try {
-    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
-    if ($resColor) {
-        $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
-        if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
-    }
-} catch (Exception $e) { }
+// --- LÓGICA AJAX PARA PEDIDO SUGERIDO (NUEVA FUNCIÓN) ---
+if (isset($_GET['ajax_sugerido'])) {
+    header('Content-Type: application/json');
+    $id_prov = intval($_GET['ajax_sugerido']);
+    // Busca productos de este proveedor cuyo stock esté por debajo del mínimo, o si no hay mínimo, menor a 5.
+    $stmt = $conexion->prepare("SELECT id, descripcion, stock_actual, stock_minimo FROM productos WHERE id_proveedor = ? AND activo = 1 AND (stock_actual <= stock_minimo OR stock_actual < 5) ORDER BY descripcion ASC");
+    $stmt->execute([$id_prov]);
+    $prods = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode($prods);
+    exit;
+}
+// --------------------------------------------------------
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['datos_pedido'])) {
     $empresa = trim($_POST['empresa']); 
     $contacto = trim($_POST['contacto']); 
     $cod_pais = trim($_POST['cod_pais'] ?? '54');
@@ -30,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = trim($_POST['email'] ?? ''); 
     $id_edit = $_POST['id_edit'] ?? '';
     
-    // Validar permisos antes de guardar
     if ($id_edit && !$es_admin && !in_array('editar_proveedor', $permisos)) die("Error: Sin permiso para editar.");
     if (!$id_edit && !$es_admin && !in_array('crear_proveedor', $permisos)) die("Error: Sin permiso para crear.");
 
@@ -81,54 +83,39 @@ $proveedores = $conexion->query("SELECT p.*, (SELECT COUNT(*) FROM productos WHE
 $deuda_global = $conexion->query("SELECT SUM(CASE WHEN tipo = 'compra' THEN monto ELSE -monto END) FROM movimientos_proveedores")->fetchColumn() ?: 0;
 
 require_once 'includes/layout_header.php'; 
+
+// --- BANNER DINÁMICO ESTANDARIZADO ---
+$titulo = "Mis Proveedores";
+$subtitulo = "Gestión de abastecimiento, saldos y pedidos automáticos.";
+$icono_bg = "bi-truck";
+$botones = [
+    ['texto' => 'REPORTE PDF', 'link' => "reporte_proveedores.php", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']
+];
+
+if($es_admin || in_array('crear_proveedor', $permisos)){
+    $botones[] = ['texto' => 'NUEVO PROVEEDOR', 'link' => 'javascript:abrirModal()', 'icono' => 'bi-plus-lg', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm ms-2'];
+}
+
+$widgets = [
+    ['label' => 'Registrados', 'valor' => count($proveedores), 'icono' => 'bi-building', 'icon_bg' => 'bg-white bg-opacity-10'],
+    ['label' => 'Deuda Global', 'valor' => '$'.number_format($deuda_global, 0, ',', '.'), 'icono' => 'bi-cash-stack', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20']
+];
+
+if($es_admin || in_array('importacion_masiva', $permisos)){
+    $widgets[] = ['label' => 'Acciones', 'valor' => 'IMPORTAR', 'icono' => 'bi-file-earmark-arrow-up', 'icon_bg' => 'bg-warning bg-opacity-20', 'link' => 'importador_maestro.php', 'text_color' => 'text-warning'];
+}
+
+include 'includes/componente_banner.php'; 
 ?>
 
-<div class="header-blue" style="background: <?php echo $color_sistema; ?> !important; border-radius: 0 !important; width: 100vw; margin-left: calc(-50vw + 50%); padding: 40px 0; position: relative; overflow: hidden; z-index: 10;">
-    <i class="bi bi-truck bg-icon-large"></i>
-    <div class="container position-relative">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="font-cancha mb-0 text-white">Proveedores</h2>
-                <p class="opacity-75 mb-0 text-white small">Gestión de abastecimiento y saldos.</p>
-            </div>
-            <?php if($es_admin || in_array('crear_proveedor', $permisos)): ?>
-            <button class="btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm" onclick="abrirModal()">+ NUEVO PROVEEDOR</button>
-            <?php endif; ?>
-        </div>
-
-        <div class="row g-3">
-            <div class="col-6 col-md-4">
-                <div class="header-widget">
-                    <div><div class="widget-label">Registrados</div><div class="widget-value text-white"><?php echo count($proveedores); ?></div></div>
-                    <div class="icon-box bg-white bg-opacity-10 text-white"><i class="bi bi-building"></i></div>
-                </div>
-            </div>
-            <div class="col-6 col-md-4">
-                <div class="header-widget">
-                    <div><div class="widget-label">Deuda Global</div><div class="widget-value text-white">$<?php echo number_format($deuda_global, 0, ',', '.'); ?></div></div>
-                    <div class="icon-box bg-danger bg-opacity-20 text-white"><i class="bi bi-cash-stack"></i></div>
-                </div>
-            </div>
-            <?php if($es_admin || in_array('importacion_masiva', $permisos)): ?>
-            <div class="col-12 col-md-4">
-                <div class="header-widget" onclick="location.href='importador_maestro.php'" style="cursor:pointer; background: rgba(255,255,255,0.1) !important;">
-                    <div><div class="widget-label text-warning">Acciones</div><div class="widget-value text-white" style="font-size:1.1rem">IMPORTAR PRODUCTOS</div></div>
-                    <div class="icon-box bg-warning bg-opacity-20 text-white"><i class="bi bi-file-earmark-arrow-up"></i></div>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
-
-<div class="container mt-4 pb-5">
-    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
+<div class="container-fluid container-md mt-n4 px-3" style="position: relative; z-index: 20;">
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white mb-5">
         <div class="card-header bg-white py-3 border-0">
-            <input type="text" id="buscador" class="form-control bg-light border-0" placeholder="Buscar por empresa o contacto..." onkeyup="filtrarTabla()">
+            <input type="text" id="buscador" class="form-control bg-light border-0 fw-bold shadow-none" placeholder="Buscar por empresa o contacto..." onkeyup="filtrarTabla()">
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="tablaProveedores">
-                <thead class="bg-light text-muted small text-uppercase">
+                <thead class="bg-light text-muted small text-uppercase fw-bold">
                     <tr><th class="ps-4">Empresa</th><th>Contacto / Teléfono</th><th class="text-center d-none d-md-table-cell">Stock</th><th class="text-end pe-4">Acciones</th></tr>
                 </thead>
                 <tbody>
@@ -147,6 +134,10 @@ require_once 'includes/layout_header.php';
                                 <i class="bi bi-receipt"></i> <span class="d-none d-md-inline">CTA. CTE.</span>
                             </a>
                             <?php endif; ?>
+
+                            <button class="btn btn-sm btn-success rounded-circle me-1 shadow-sm" onclick="armarPedido(<?php echo $p['id']; ?>, '<?php echo addslashes($p['empresa']); ?>')" title="Generar Pedido Sugerido">
+                                <i class="bi bi-cart-plus-fill"></i>
+                            </button>
 
                             <?php if($es_admin || in_array('editar_proveedor', $permisos)): ?>
                             <button class="btn btn-sm btn-outline-primary rounded-circle me-1" 
@@ -225,7 +216,6 @@ require_once 'includes/layout_header.php';
         modalProv.show(); 
     }
     
-    // JS Inteligente para desarmar el teléfono y poner la bandera correcta al editar
     function editarProv(btn) { 
         document.getElementById('id_edit').value = btn.getAttribute('data-id'); 
         document.getElementById('empresa').value = btn.getAttribute('data-empresa'); 
@@ -248,6 +238,94 @@ require_once 'includes/layout_header.php';
         document.getElementById('modalTitulo').innerText = 'Editar Proveedor'; 
         modalProv.show(); 
     }
+
+    // --- FUNCIÓN MAGIA: ARMAR PEDIDO SUGERIDO ---
+    function armarPedido(id_prov, empresa) {
+        Swal.fire({
+            title: 'Analizando stock...',
+            allowOutsideClick: false,
+            didOpen: () => { Swal.showLoading(); }
+        });
+        
+        fetch('proveedores.php?ajax_sugerido=' + id_prov)
+        .then(r => r.json())
+        .then(data => {
+            if(data.length === 0) {
+                Swal.fire({ icon: 'success', title: 'Stock Óptimo', text: 'No hay productos de ' + empresa + ' que necesiten reposición.', confirmButtonColor: '#198754' });
+                return;
+            }
+            
+            let html = '<div class="table-responsive text-start"><table class="table table-sm align-middle"><thead class="table-light"><tr><th style="font-size:12px;">Producto</th><th style="font-size:12px;" class="text-center">Stock</th><th style="font-size:12px; width:90px;">Pedir</th></tr></thead><tbody>';
+            data.forEach(p => {
+                // Cálculo inteligente de sugerencia (El doble del mínimo, o 5 por defecto)
+                let sug = (p.stock_minimo > 0) ? (p.stock_minimo * 2) - p.stock_actual : 5;
+                if(sug < 1) sug = 1;
+                html += `<tr>
+                    <td class="small fw-bold lh-sm">${p.descripcion}</td>
+                    <td class="text-center"><span class="badge ${p.stock_actual <= 0 ? 'bg-danger' : 'bg-warning text-dark'}">${p.stock_actual}</span></td>
+                    <td><input type="number" class="form-control form-control-sm text-center fw-bold input-pedir" data-desc="${p.descripcion}" value="${sug}" min="0"></td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+            html += `
+            <div class="text-start mt-2 px-3 py-2 rounded-3 shadow-sm" style="background-color: #f0f7ff; border: 1px solid #cce3f6;">
+                <div class="fw-bold text-primary mb-1" style="font-size: 13px;"><i class="bi bi-robot"></i> Asistente Inteligente de Reposición</div>
+                <div style="font-size: 11.5px; color: #444; line-height: 1.4;">
+                    <strong>¿En qué se basa esta sugerencia?</strong> El sistema solo te muestra los productos que cayeron por debajo de su "Stock Mínimo". Para asegurar que no te quedes sin mercadería, calcula la cantidad necesaria para <strong>duplicar tu stock mínimo</strong>, restando lo que ya tenés en la estantería.<br>
+                    <div class="text-center my-2"><code class="bg-white border px-2 py-1 text-dark rounded shadow-sm">Fórmula: (Stock Mínimo x 2) - Stock Actual</code></div>
+                    <span class="text-muted"><i class="bi bi-info-circle"></i> <em>Modificá las cantidades a tu gusto. Lo que dejes en 0 no se incluirá en el reporte PDF. (Si no configuraste un stock mínimo para un producto, se sugieren 5 unidades por precaución).</em></span>
+                </div>
+            </div>`;
+            
+            Swal.fire({
+                title: '<i class="bi bi-cart-check text-success"></i> Pedido a ' + empresa,
+                html: html,
+                width: '600px',
+                showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-printer-fill"></i> Imprimir Reporte',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#102A57',
+                preConfirm: () => {
+                    let pedido = [];
+                    document.querySelectorAll('.input-pedir').forEach(inp => {
+                        let c = parseInt(inp.value);
+                        if(c > 0) pedido.push({ desc: inp.getAttribute('data-desc'), cant: c });
+                    });
+                    if(pedido.length === 0) {
+                        Swal.showValidationMessage('Debes incluir al menos un producto para pedir.');
+                        return false;
+                    }
+                    return pedido;
+                }
+            }).then((res) => {
+                if(res.isConfirmed) {
+                    // Enviar datos por POST al PDF en una pestaña nueva
+                    let form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = 'reporte_pedido_proveedor.php';
+                    form.target = '_blank';
+                    
+                    let inpData = document.createElement('input');
+                    inpData.type = 'hidden';
+                    inpData.name = 'datos';
+                    inpData.value = JSON.stringify(res.value);
+                    form.appendChild(inpData);
+                    
+                    let inpEmpresa = document.createElement('input');
+                    inpEmpresa.type = 'hidden';
+                    inpEmpresa.name = 'empresa';
+                    inpEmpresa.value = empresa;
+                    form.appendChild(inpEmpresa);
+                    
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
+                }
+            });
+        })
+        .catch(e => { Swal.fire('Error', 'Fallo al analizar el stock', 'error'); });
+    }
+    // ---------------------------------------------
     
     function confirmarBorrar(id, n) { Swal.fire({ title: '¿Eliminar a ' + n + '?', text: 'Solo si no tiene productos.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, eliminar', confirmButtonColor: '#d33' }).then((r) => { if (r.isConfirmed) window.location.href = 'proveedores.php?borrar=' + id; }); }
     function filtrarTabla() { const f = document.getElementById('buscador').value.toLowerCase(); document.querySelectorAll('#tablaProveedores tbody tr').forEach(r => { r.style.display = r.innerText.toLowerCase().includes(f) ? '' : 'none'; }); }
@@ -258,7 +336,6 @@ require_once 'includes/layout_header.php';
 </script>
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
-    /* CSS Ajustado para Letra más chica y proporcionada */
     .select2-container .select2-selection--single { 
         height: 38px !important; border: 1px solid #dee2e6 !important; 
         border-radius: 0.375rem 0 0 0.375rem !important; 
@@ -271,14 +348,12 @@ require_once 'includes/layout_header.php';
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
     $(document).ready(function() {
-        // Formato Lista (Muestra Abreviatura, ej: ARG)
         function formatoBanderaLista(pais) {
             if (!pais.id) return pais.text;
             let iso = pais.element.getAttribute('data-iso');
             let nombre = pais.element.getAttribute('data-name');
             return $('<span><img src="https://flagcdn.com/w20/' + iso + '.png" style="width:16px; margin-right:4px; margin-bottom:1px;" />' + nombre + '</span>');
         }
-        // Formato Cerrado (Solo muestra la foto y el número +54)
         function formatoBanderaCerrado(pais) {
             if (!pais.id) return pais.text;
             let iso = pais.element.getAttribute('data-iso');

@@ -114,18 +114,18 @@ include 'includes/componente_banner.php';
 
 <div class="container-fluid container-md mt-n4 px-2 px-md-3" style="position: relative; z-index: 20;">
     
-    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-primary text-white overflow-hidden" style="border: none !important; border-left: 5px solid #0a58ca !important;">
+    <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border: none !important; border-left: 5px solid #ff9800 !important;">
         <div class="card-body p-2 p-md-3">
             <form method="GET" class="row g-2 align-items-center mb-0">
                 <input type="hidden" name="estado_cobro" value="<?php echo htmlspecialchars($f_cobro); ?>">
                 
-                <div class="col-md-5 col-12 text-center text-md-start">
+                <div class="col-md-8 col-12 text-center text-md-start">
                     <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
                     <p class="small mb-0 opacity-75 d-none d-md-block">Busca un recipiente o envase por su nombre.</p>
                 </div>
-                <div class="col-md-7 col-12 text-end mt-2 mt-md-0">
+                <div class="col-md-4 col-12 text-end mt-2 mt-md-0">
                     <div class="input-group input-group-sm">
-                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none text-dark" placeholder="Ej: Bandeja Mediana..." value="<?php echo htmlspecialchars($buscar); ?>">
+                        <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Ej: Bandeja Mediana..." value="<?php echo htmlspecialchars($buscar); ?>">
                         <button class="btn btn-dark px-3 shadow-none border-0" type="submit" style="border: none !important;"><i class="bi bi-arrow-right-circle-fill"></i></button>
                     </div>
                 </div>

@@ -91,7 +91,7 @@ foreach($activos as &$a) {
     $valor_total += (float)($a['costo_compra'] ?? 0);
     $est_norm = ucfirst(strtolower(trim((string)($a['estado'] ?? 'Bueno'))));
     $a['estado'] = $est_norm; // Sincronizamos
-    if($est_norm == 'Reparar') $reparar_cnt++;
+    if(strtolower($est_norm) == 'mantenimiento' || strtolower($est_norm) == 'roto') $reparar_cnt++;
 }
 unset($a);
 
@@ -103,7 +103,7 @@ $subtitulo = "Inventario y control de hardware.";
 $icono_bg = "bi-pc-display-horizontal";
 $botones = [
     ['texto' => 'REPORTE PDF', 'link' => "reporte_bienes.php?".$_SERVER['QUERY_STRING'], 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank'],
-    ['texto' => 'NUEVO ACTIVO', 'link' => 'javascript:void(0)', 'icono' => 'bi-plus-lg', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm ms-2', 'onClick' => 'abrirModalCrear()']
+    ['texto' => 'NUEVO ACTIVO', 'link' => 'javascript:abrirModalCrear()', 'icono' => 'bi-plus-lg', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm ms-2']
 ];
 $widgets = [
     ['label' => 'Equipos', 'valor' => $total_activos, 'icono' => 'bi-archive', 'icon_bg' => 'bg-white bg-opacity-10'],
@@ -151,14 +151,15 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
-    <div class="row g-4" id="gridActivos">
+    <div class="row g-4 mb-5" id="gridActivos">
         <?php foreach ($activos as $a): 
             $estadoClass = 'bg-secondary';
-            if ($a['estado'] == 'Nuevo') $estadoClass = 'bg-success';
-            if ($a['estado'] == 'Bueno') $estadoClass = 'bg-primary';
-            if ($a['estado'] == 'Regular') $estadoClass = 'bg-warning text-dark';
-            if ($a['estado'] == 'Reparar') $estadoClass = 'bg-danger';
-            if ($a['estado'] == 'Malo') $estadoClass = 'bg-dark';
+            $estLower = strtolower($a['estado'] ?? '');
+            if ($estLower == 'nuevo') $estadoClass = 'bg-success';
+            if ($estLower == 'bueno') $estadoClass = 'bg-primary';
+            if ($estLower == 'mantenimiento') $estadoClass = 'bg-warning text-dark';
+            if ($estLower == 'roto') $estadoClass = 'bg-danger';
+            if ($estLower == 'baja') $estadoClass = 'bg-dark';
             
             $img = (!empty($a['foto']) && file_exists($a['foto'])) ? $a['foto'] : 'img/no-image.png';
             $jsonItem = htmlspecialchars(json_encode($a), ENT_QUOTES, 'UTF-8');
@@ -166,7 +167,7 @@ include 'includes/componente_banner.php';
         <div class="col-12 col-sm-6 col-md-4 col-lg-3 item-activo" data-estado="<?php echo $a['estado']; ?>">
             <div class="card h-100 shadow-sm border-0 rounded-4 overflow-hidden position-relative">
                 <div class="img-zone" style="height: 160px; background: #f8f9fa; position:relative; overflow:hidden; cursor:pointer;" onclick='verDetalle(<?php echo $jsonItem; ?>)'>
-                    <img src="<?php echo $img; ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                    <img src="<?php echo $img; ?>" style="width: 100%; height: 100%; object-fit: contain; padding: 10px;">
                     <span class="badge position-absolute top-0 end-0 m-2 <?php echo $estadoClass; ?> shadow-sm"><?php echo $a['estado']; ?></span>
                 </div>
                 <div class="card-body p-3 bg-white" onclick='verDetalle(<?php echo $jsonItem; ?>)' style="cursor:pointer;">
@@ -187,66 +188,79 @@ include 'includes/componente_banner.php';
     </div>
 </div>
 
-<div class="modal fade" id="modalForm" tabindex="-1">
+<div class="modal fade" id="modalForm" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow rounded-4">
-            <div class="modal-header bg-primary text-white"><h5 class="modal-title fw-bold" id="modalTitle">Nuevo Activo</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
-            <form action="bienes_uso.php" method="POST" enctype="multipart/form-data">
-                <div class="modal-body p-4 row g-3">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold" id="modalTitle"><i class="bi bi-pc-display-horizontal"></i> Nuevo Activo</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form action="bienes_uso.php" method="POST" id="formActivo" enctype="multipart/form-data">
                     <input type="hidden" name="id_edit" id="id_edit">
-                    <div class="col-md-6"><label class="small fw-bold text-muted">Nombre del Bien</label><input type="text" name="nombre" id="nombre" class="form-control fw-bold" required></div>
-                    <div class="col-md-3"><label class="small fw-bold text-muted">Marca</label><input type="text" name="marca" id="marca" class="form-control"></div>
-                    <div class="col-md-3"><label class="small fw-bold text-muted">Modelo</label><input type="text" name="modelo" id="modelo" class="form-control"></div>
-                    <div class="col-md-4">
-                        <label class="small fw-bold text-muted">Estado</label>
-                        <select name="estado" id="estado" class="form-select" required>
-                            <option value="Nuevo">Nuevo</option>
-                            <option value="Bueno">Bueno</option>
-                            <option value="Regular">Regular</option>
-                            <option value="Reparar">Reparar</option>
-                            <option value="Malo">Malo</option>
-                        </select>
+                    
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-muted">Nombre del Bien</label>
+                            <input type="text" name="nombre" id="nombre" class="form-control fw-bold" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold text-muted">Marca</label>
+                            <input type="text" name="marca" id="marca" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold text-muted">Modelo</label>
+                            <input type="text" name="modelo" id="modelo" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-muted">Estado</label>
+                            <select name="estado" id="estado" class="form-select" required>
+                                <option value="nuevo">Nuevo</option>
+                                <option value="bueno">Bueno</option>
+                                <option value="mantenimiento">Mantenimiento / Reparar</option>
+                                <option value="roto">Roto / Malo</option>
+                                <option value="baja">Dado de baja</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-muted">Ubicación</label>
+                            <input type="text" name="ubicacion" id="ubicacion" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold text-muted">Nro Serie</label>
+                            <input type="text" name="serie" id="serie" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-muted">Fecha Compra</label>
+                            <input type="date" name="fecha" id="fecha" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold text-muted">Costo Inversión ($)</label>
+                            <input type="number" step="0.01" name="costo" id="costo" class="form-control">
+                        </div>
+                        <div class="col-12">
+                            <label class="small fw-bold text-muted">Foto del Activo (Opcional)</label>
+                            <input type="file" name="foto" id="foto" class="form-control" accept="image/*">
+                        </div>
+                        <div class="col-12">
+                            <label class="small fw-bold text-muted">Notas Adicionales</label>
+                            <textarea name="notas" id="notas" class="form-control" rows="2"></textarea>
+                        </div>
                     </div>
-                    <div class="col-md-4"><label class="small fw-bold text-muted">Ubicación</label><input type="text" name="ubicacion" id="ubicacion" class="form-control"></div>
-                    <div class="col-md-4"><label class="small fw-bold text-muted">Nro Serie</label><input type="text" name="serie" id="serie" class="form-control"></div>
-                    <div class="col-md-6"><label class="small fw-bold text-muted">Fecha Compra</label><input type="date" name="fecha" id="fecha" class="form-control"></div>
-                    <div class="col-md-6"><label class="small fw-bold text-muted">Costo Inversión ($)</label><input type="number" step="0.01" name="costo" id="costo" class="form-control"></div>
-                    <div class="col-12"><label class="small fw-bold text-muted">Foto del Activo</label><input type="file" name="foto" class="form-control" accept="image/*"></div>
-                    <div class="col-12"><label class="small fw-bold text-muted">Notas Adicionales</label><textarea name="notas" id="notas" class="form-control" rows="2"></textarea></div>
-                </div>
-                <div class="modal-footer bg-light border-0"><button type="submit" class="btn btn-primary fw-bold px-4 rounded-pill">GUARDAR DATOS</button></div>
-            </form>
+                    <div class="mt-4 text-end">
+                        <button type="submit" class="btn btn-primary fw-bold px-4 rounded-pill shadow-sm"><i class="bi bi-check-lg"></i> GUARDAR DATOS</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="modalDetalle" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow rounded-4 overflow-hidden">
-        <div class="modal-body p-0 position-relative">
-            <button type="button" class="btn-close position-absolute top-0 end-0 m-3 bg-white p-2 rounded-circle" data-bs-dismiss="modal" style="z-index:10;"></button>
-            <div id="view-img-container" style="height:250px; background:#f8f9fa;"></div>
-            <div class="p-4">
-                <h4 class="fw-bold mb-0 text-primary" id="view-nombre"></h4>
-                <span class="text-muted small fw-bold" id="view-marca"></span>
-                <hr>
-                <div class="row g-3 small">
-                    <div class="col-6"><span class="text-muted d-block text-uppercase" style="font-size:7pt;">Estado</span> <strong id="view-estado" class="fs-6"></strong></div>
-                    <div class="col-6"><span class="text-muted d-block text-uppercase" style="font-size:7pt;">Inversión</span> <strong id="view-costo" class="text-success fs-6"></strong></div>
-                    <div class="col-6"><span class="text-muted d-block text-uppercase" style="font-size:7pt;">Ubicación</span> <strong id="view-ubicacion"></strong></div>
-                    <div class="col-6"><span class="text-muted d-block text-uppercase" style="font-size:7pt;">S/N</span> <strong id="view-serie" class="font-monospace"></strong></div>
-                    <div class="col-12 p-3 bg-light rounded mt-2"><span class="text-muted fw-bold d-block mb-1">Notas:</span> <span id="view-notas" class="fst-italic text-secondary"></span></div>
-                </div>
-            </div>
-        </div>
-    </div></div>
-</div>
-
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
-    let modalForm, modalDetalle;
+    let modalFormObj;
     document.addEventListener('DOMContentLoaded', function() {
-        modalForm = new bootstrap.Modal(document.getElementById('modalForm'));
-        modalDetalle = new bootstrap.Modal(document.getElementById('modalDetalle'));
+        modalFormObj = new bootstrap.Modal(document.getElementById('modalForm'));
         
         const msg = new URLSearchParams(window.location.search).get('msg');
         if(msg === 'actualizado') Swal.fire({ icon: 'success', title: '¡Listo!', text: 'Cambios guardados con éxito.', confirmButtonColor: '#102A57' });
@@ -254,15 +268,15 @@ include 'includes/componente_banner.php';
         if(msg === 'eliminado') Swal.fire({ icon: 'success', title: 'Eliminado', text: 'El bien fue removido del sistema.', confirmButtonColor: '#102A57' });
     });
 
-    function abrirModalCrear() { 
-        document.querySelector('#modalForm form').reset(); 
-        document.getElementById('id_edit').value = ''; 
-        document.getElementById('modalTitle').innerText = 'Nuevo Activo'; 
-        modalForm.show(); 
+    function abrirModalCrear() {
+        document.getElementById('formActivo').reset();
+        document.getElementById('id_edit').value = '';
+        document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pc-display-horizontal"></i> Nuevo Activo';
+        modalFormObj.show();
     }
 
     function editar(item) {
-        document.querySelector('#modalForm form').reset();
+        document.getElementById('formActivo').reset();
         document.getElementById('id_edit').value = item.id;
         document.getElementById('nombre').value = item.nombre;
         document.getElementById('marca').value = item.marca || '';
@@ -273,32 +287,81 @@ include 'includes/componente_banner.php';
         document.getElementById('costo').value = item.costo_compra || '';
         document.getElementById('notas').value = item.notas || '';
         
-        // SINCRONIZACIÓN FORZADA DEL SELECT (ESTO ARREGLA EL ERROR)
+        // Sincronizar el select para que marque el estado correcto
         document.getElementById('estado').value = item.estado;
         
-        document.getElementById('modalTitle').innerText = 'Editar: ' + item.nombre;
-        modalForm.show();
+        document.getElementById('modalTitle').innerHTML = '<i class="bi bi-pencil-square"></i> Editar: ' + item.nombre;
+        modalFormObj.show();
     }
 
     function verDetalle(item) {
-        document.getElementById('view-nombre').innerText = item.nombre;
-        document.getElementById('view-marca').innerText = (item.marca || '') + ' ' + (item.modelo || '');
-        document.getElementById('view-estado').innerText = item.estado;
-        document.getElementById('view-ubicacion').innerText = item.ubicacion || '-';
-        document.getElementById('view-serie').innerText = item.numero_serie || 'S/N';
-        document.getElementById('view-costo').innerText = '$' + new Intl.NumberFormat('es-AR').format(item.costo_compra);
-        document.getElementById('view-notas').innerText = item.notas || 'Sin notas adicionales.';
-        const container = document.getElementById('view-img-container');
-        container.innerHTML = item.foto ? `<img src="${item.foto}" style="width:100%; height:100%; object-fit:cover;">` : `<div class="d-flex h-100 align-items-center justify-content-center opacity-25"><i class="bi bi-pc-display-horizontal fs-1"></i></div>`;
-        modalDetalle.show();
+        let costoStr = parseFloat(item.costo_compra || 0).toLocaleString('es-AR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        let imgHtml = item.foto ? `<img src="${item.foto}" style="height: 120px; object-fit:contain; border-radius:8px;">` : `<i class="bi bi-pc-display-horizontal" style="font-size: 3rem; color: #102A57;"></i>`;
+        
+        let estadoColor = '#6c757d';
+        let estLower = (item.estado || '').toLowerCase();
+        if (estLower === 'nuevo') estadoColor = '#28a745';
+        if (estLower === 'bueno') estadoColor = '#007bff';
+        if (estLower === 'mantenimiento') estadoColor = '#ffc107';
+        if (estLower === 'roto') estadoColor = '#dc3545';
+        if (estLower === 'baja') estadoColor = '#343a40';
+
+        const html = `
+            <div style="font-family: 'Inter', sans-serif; text-align: left; color: #000; padding: 10px;">
+                <div style="text-align: center; margin-bottom: 15px;">
+                    ${imgHtml}
+                    <h5 style="font-weight: 900; color: #102A57; letter-spacing: 1px; margin-top:10px;">FICHA DEL ACTIVO</h5>
+                    <span style="font-size: 10px; background: #eee; padding: 2px 6px; border-radius: 4px;">ID #${item.id}</span>
+                </div>
+                <div style="background: #f8f9fa; border: 1px solid #eee; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+                    <div style="margin-bottom: 4px;"><strong>NOMBRE:</strong> ${item.nombre.toUpperCase()}</div>
+                    <div style="margin-bottom: 4px;"><strong>MARCA/MOD:</strong> ${item.marca || '-'} ${item.modelo || ''}</div>
+                    <div style="margin-bottom: 4px;"><strong>S/N:</strong> ${item.numero_serie || 'S/N'}</div>
+                    <div style="margin-bottom: 4px;"><strong>UBICACIÓN:</strong> ${item.ubicacion || '-'}</div>
+                    <div style="margin-top: 8px; font-weight:bold; color:${estadoColor};">ESTADO: ${item.estado.toUpperCase()}</div>
+                </div>
+                <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+                    <span style="font-size: 1.1em; font-weight:800;">INVERSIÓN:</span>
+                    <span style="font-size: 1.15em; font-weight:900; color: #102A57;">$${costoStr}</span>
+                </div>
+                <div style="background: #e9ecef; border-left: 4px solid #6c757d; padding: 12px; font-size: 12px; margin-bottom: 20px;">
+                    <strong>Notas:</strong> ${item.notas || 'Sin notas adicionales.'}
+                </div>
+            </div>
+            <div class="d-flex justify-content-center gap-2 mt-4 border-top pt-3">
+                <button class="btn btn-primary fw-bold flex-fill" onclick="prepararEdicion()"><i class="bi bi-pencil"></i> EDITAR</button>
+                <button class="btn btn-danger fw-bold flex-fill" onclick="confirmarBorrar(${item.id}, '${item.nombre.replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i> BORRAR</button>
+            </div>`;
+        
+        window.itemActual = item; // Guardamos el item temporalmente para el botón editar
+        
+        Swal.fire({ html: html, width: 400, showConfirmButton: false, showCloseButton: true, background: '#fff' });
+    }
+
+    function prepararEdicion() {
+        Swal.close();
+        setTimeout(() => { 
+            editar(window.itemActual);
+        }, 400); 
     }
 
     function confirmarBorrar(id, nombre) {
-        Swal.fire({ title: '¿Borrar ' + nombre + '?', text: "Esta acción no se puede deshacer.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Sí, borrar', cancelButtonText: 'Cancelar' })
-        .then((result) => { if (result.isConfirmed) { window.location.href = 'bienes_uso.php?borrar=' + id; } })
+        Swal.fire({ 
+            title: '¿Borrar ' + nombre + '?', 
+            text: "Esta acción no se puede deshacer.", 
+            icon: 'warning', 
+            showCancelButton: true, 
+            confirmButtonColor: '#d33', 
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Sí, borrar', 
+            cancelButtonText: 'Cancelar' 
+        }).then((result) => { 
+            if (result.isConfirmed) { window.location.href = 'bienes_uso.php?borrar=' + id; } 
+        });
     }
 
-    document.querySelector('#modalForm form').addEventListener('submit', function() {
+    // Loader al guardar
+    document.getElementById('formActivo').addEventListener('submit', function() {
         Swal.fire({ title: 'Guardando...', text: 'Actualizando inventario', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
     });
 </script>

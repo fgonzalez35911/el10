@@ -1,5 +1,5 @@
 <?php
-// reporte_bienes.php - VERSIÓN VANGUARD PRO (FLUJO NATIVO + GRÁFICOS)
+// reporte_encuestas.php - VERSIÓN VANGUARD PRO (FLUJO NATIVO + GRÁFICOS)
 session_start();
 $es_publico = isset($_GET['publico']) && $_GET['publico'] == '1';
 if (!isset($_SESSION['usuario_id']) && !$es_publico) { header("Location: index.php"); exit; }
@@ -36,48 +36,46 @@ try {
         $firmaUsuario = 'data:image/png;base64,' . base64_encode(file_get_contents("img/firmas/firma_admin.png"));
     }
 
-    $desde = $_GET['desde'] ?? date('Y-01-01', strtotime('-5 years'));
-    $hasta = $_GET['hasta'] ?? date('Y-12-31');
-    $buscar = trim($_GET['buscar'] ?? '');
+    // 4. RECUPERAR FILTROS IGUAL QUE EL PANEL
+    $where = "WHERE 1=1";
+    $params = [];
+    $fecha_filtro = $_GET['fecha'] ?? '';
+    if (!empty($fecha_filtro)) { $where .= " AND DATE(fecha) = ?"; $params[] = $fecha_filtro; }
+    $estrellas = $_GET['estrellas'] ?? '';
+    if (!empty($estrellas)) { $where .= " AND nivel = ?"; $params[] = $estrellas; }
+    $tipo = $_GET['tipo'] ?? '';
+    if ($tipo === 'anonimo') { $where .= " AND cliente_nombre = 'Anónimo'"; } 
+    elseif ($tipo === 'cliente') { $where .= " AND cliente_nombre != 'Anónimo'"; }
 
-    $cond = ["((DATE(fecha_compra) >= ? AND DATE(fecha_compra) <= ?) OR fecha_compra IS NULL)"];
-    $params = [$desde, $hasta];
-
-    if(!empty($buscar)) {
-        $cond[] = "(nombre LIKE ? OR marca LIKE ? OR numero_serie LIKE ? OR ubicacion LIKE ?)";
-        array_push($params, "%$buscar%", "%$buscar%", "%$buscar%", "%$buscar%");
-    }
-
-    // Consulta de Flujo Continuo
-    $stmt = $conexion->prepare("SELECT * FROM bienes_uso WHERE " . implode(" AND ", $cond) . " ORDER BY id DESC");
+    // Consulta Principal
+    $stmt = $conexion->prepare("SELECT * FROM encuestas $where ORDER BY fecha DESC LIMIT 500");
     $stmt->execute($params);
     $registros = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $rango_texto = date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta));
-
     // --- CÁLCULOS ESTADÍSTICOS PARA RESUMEN Y GRÁFICOS ---
-    $total_bienes = count($registros);
-    $totalValor = 0;
+    $total_encuestas = count($registros);
+    $suma_notas = 0;
     
-    $estados_bienes = [];
-    $top_costos = [];
+    // Contadores para el Gráfico Circular
+    $stats_estrellas = [
+        '5 Estrellas (Excelente)' => 0,
+        '4 Estrellas (Buena)' => 0,
+        '3 Estrellas (Normal)' => 0,
+        '2 Estrellas (Regular)' => 0,
+        '1 Estrella (Mala)' => 0
+    ];
 
     foreach($registros as $r) {
-        $costo = floatval($r['costo_compra']);
-        $totalValor += $costo;
-
-        // Agrupar para Gráfico Circular (Estado)
-        $est = ucfirst(strtolower(trim((string)$r['estado'])));
-        if(!$est) { $est = 'Desconocido'; }
-        if(!isset($estados_bienes[$est])) { $estados_bienes[$est] = 0; }
-        $estados_bienes[$est]++;
-
-        // Agrupar para Gráfico de Barras (Top Inversión)
-        $nombre_bien = strtoupper($r['nombre']);
-        if(!isset($top_costos[$nombre_bien])) { $top_costos[$nombre_bien] = 0; }
-        $top_costos[$nombre_bien] += $costo;
+        $n = intval($r['nivel']);
+        $suma_notas += $n;
+        if($n == 5) $stats_estrellas['5 Estrellas (Excelente)']++;
+        if($n == 4) $stats_estrellas['4 Estrellas (Buena)']++;
+        if($n == 3) $stats_estrellas['3 Estrellas (Normal)']++;
+        if($n == 2) $stats_estrellas['2 Estrellas (Regular)']++;
+        if($n == 1) $stats_estrellas['1 Estrella (Mala)']++;
     }
-    arsort($top_costos);
+    
+    $promedio = $total_encuestas > 0 ? round($suma_notas / $total_encuestas, 1) : 0;
 
     $url_actual = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
     if (strpos($url_actual, 'publico=1') === false) {
@@ -94,7 +92,7 @@ try {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Reporte Activos - Vanguard Pro</title>
+    <title>Reporte Encuestas - Vanguard Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     
@@ -132,11 +130,11 @@ try {
         
         /* Badges de estado */
         .badge { padding: 4px 8px; border-radius: 4px; font-size: 7.5pt; font-weight: bold; text-transform: uppercase; color: white; display: inline-block; }
-        .bg-nuevo { background-color: #198754; }
-        .bg-bueno { background-color: #0dcaf0; color: #000 !important; }
-        .bg-regular { background-color: #ffc107; color: #000 !important; }
-        .bg-reparar { background-color: #dc3545; }
-        .bg-malo { background-color: #212529; }
+        .bg-nivel-5 { background-color: #198754; } /* Verde Excelente */
+        .bg-nivel-4 { background-color: #0dcaf0; color: #000 !important; } /* Celeste Buena */
+        .bg-nivel-3 { background-color: #ffc107; color: #000 !important; } /* Amarillo Normal */
+        .bg-nivel-2 { background-color: #fd7e14; } /* Naranja Regular */
+        .bg-nivel-1 { background-color: #dc3545; } /* Rojo Mala */
     </style>
 </head>
 <body>
@@ -150,7 +148,7 @@ try {
         <table>
             <thead>
                 <tr>
-                    <td colspan="6" style="border:none; padding:0; background:white;">
+                    <td colspan="4" style="border:none; padding:0; background:white;">
                         <header>
                             <div style="width: 20%; text-align: left;">
                                 <?php if(!empty($negocio['logo'])): ?>
@@ -163,99 +161,83 @@ try {
                                 <p style="font-size: 9pt; margin: 0;"><strong>CUIT: <?php echo $negocio['cuit']; ?></strong></p>
                             </div>
                             <div style="text-align: right; width: 30%; font-size: 8pt; color: #333; font-weight: normal;">
-                                <strong>INVENTARIO DE ACTIVOS</strong><br>
+                                <strong>ANÁLISIS DE SATISFACCIÓN</strong><br>
                                 <strong style="color:#102A57;">EMISIÓN: <?php echo date('d/m/Y H:i'); ?></strong>
                             </div>
                         </header>
                         <h3 style="color: #102A57; border-left: 5px solid #102A57; padding-left: 10px; margin-bottom: 20px; margin-top:0; text-transform: uppercase; font-size: 11pt;">
-                            Detalle de Bienes de Uso Físicos
+                            Registro de Opiniones y Comentarios
                         </h3>
                     </td>
                 </tr>
                 <tr>
-                    <th style="width: 15%;">FECHA COMPRA</th>
-                    <th style="width: 25%;">EQUIPO</th>
-                    <th style="width: 20%;">MARCA / MODELO</th>
-                    <th style="width: 10%; text-align: center;">ESTADO</th>
-                    <th style="width: 15%;">UBICACIÓN</th>
-                    <th style="width: 15%; text-align: right;">VALOR INVERSIÓN</th>
+                    <th style="width: 15%;">FECHA</th>
+                    <th style="width: 25%;">CLIENTE / CONTACTO</th>
+                    <th style="width: 45%;">COMENTARIO</th>
+                    <th style="width: 15%; text-align: center;">NIVEL</th>
                 </tr>
             </thead>
             
             <tbody>
-                <?php if($total_bienes > 0): ?>
+                <?php if($total_encuestas > 0): ?>
                     <?php foreach($registros as $r): 
-                        $estadoClass = 'bg-malo';
-                        $estLower = strtolower($r['estado'] ?? '');
-                        if ($estLower == 'nuevo') $estadoClass = 'bg-nuevo';
-                        if ($estLower == 'bueno') $estadoClass = 'bg-bueno';
-                        if ($estLower == 'mantenimiento') $estadoClass = 'bg-regular';
-                        if ($estLower == 'roto') $estadoClass = 'bg-reparar';
-                        if ($estLower == 'baja') $estadoClass = 'bg-malo';
+                        $badgeClass = 'bg-nivel-' . $r['nivel'];
+                        $lblEstrella = $r['nivel'] . ' Estrellas';
                     ?>
                     <tr class="evitar-corte">
-                        <td><?php echo $r['fecha_compra'] ? date('d/m/Y', strtotime($r['fecha_compra'])) : '<i style="color:#999;">Sin fecha</i>'; ?></td>
+                        <td><?php echo date('d/m/Y', strtotime($r['fecha'])); ?><br><small style="color:#999;"><?php echo date('H:i', strtotime($r['fecha'])); ?></small></td>
                         <td>
-                            <strong><?php echo strtoupper($r['nombre']); ?></strong><br>
-                            <small style="color:#666;">S/N: <?php echo $r['numero_serie'] ?: '-'; ?></small>
+                            <strong><?php echo strtoupper($r['cliente_nombre'] ?: 'ANÓNIMO'); ?></strong><br>
+                            <small style="color:#666;"><?php echo $r['contacto'] ?: 'Sin contacto'; ?></small>
                         </td>
-                        <td><?php echo strtoupper($r['marca'] . ' ' . $r['modelo']); ?></td>
-                        <td style="text-align: center;"><span class="badge <?php echo $estadoClass; ?>"><?php echo $r['estado']; ?></span></td>
-                        <td><?php echo strtoupper($r['ubicacion']); ?></td>
-                        <td style="text-align: right; font-weight: bold; color: #102A57;">$<?php echo number_format($r['costo_compra'], 2, ',', '.'); ?></td>
+                        <td><div style="font-style: italic; color:#444;">"<?php echo htmlspecialchars($r['comentario']) ?: 'Sin comentario escrito.'; ?>"</div></td>
+                        <td style="text-align: center;"><span class="badge <?php echo $badgeClass; ?>"><?php echo $lblEstrella; ?></span></td>
                     </tr>
                     <?php endforeach; ?>
                     
                     <tr class="evitar-corte">
-                        <td colspan="6" style="text-align: center; padding: 40px 20px; color: #a0a0a0; border-top: 2px dashed #e0e0e0;">
-                            <i class="bi bi-pc-display-horizontal" style="font-size: 28pt; display: block; margin-bottom: 10px; color: #d0d0d0;"></i>
-                            <span style="font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Fin de Registros de Activos</span>
+                        <td colspan="4" style="text-align: center; padding: 40px 20px; color: #a0a0a0; border-top: 2px dashed #e0e0e0;">
+                            <i class="bi bi-chat-square-quote" style="font-size: 28pt; display: block; margin-bottom: 10px; color: #d0d0d0;"></i>
+                            <span style="font-size: 10pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Fin del Registro de Opiniones</span>
                         </td>
                     </tr>
                 <?php else: ?>
-                    <tr><td colspan="6" style="text-align:center; padding: 30px; color:#666;">No se encontraron activos registrados en este filtro.</td></tr>
+                    <tr><td colspan="4" style="text-align:center; padding: 30px; color:#666;">No se encontraron encuestas registradas en este filtro.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
 
-        <?php if($total_bienes > 0): ?>
+        <?php if($total_encuestas > 0): ?>
         <div class="evitar-corte" style="margin-top: 30px;">
             <div class="resumen-card">
-                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top:0; text-transform: uppercase; font-size: 11pt;">Resumen de Inversión</h4>
+                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top:0; text-transform: uppercase; font-size: 11pt;">Estadísticas de Satisfacción</h4>
                 
                 <div style="display: flex; gap: 20px; margin-bottom: 20px;">
                     <div style="flex: 1; background: white; padding: 10px; border-radius: 5px; border: 1px solid #ddd; text-align: center;">
-                        <small style="color: #666; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Total de Equipos</small>
-                        <div style="font-size: 16pt; font-weight: 900; color: #102A57;"><?php echo $total_bienes; ?></div>
+                        <small style="color: #666; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Total Opiniones</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #102A57;"><?php echo $total_encuestas; ?></div>
                     </div>
-                    <div style="flex: 1; background: #e8fdf2; padding: 10px; border-radius: 5px; border: 1px solid #198754; text-align: center;">
-                        <small style="color: #198754; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Valorización Total Inventario</small>
-                        <div style="font-size: 16pt; font-weight: 900; color: #198754;">$<?php echo number_format($totalValor, 2, ',', '.'); ?></div>
+                    <div style="flex: 1; background: #fffcf0; padding: 10px; border-radius: 5px; border: 1px solid #ffc107; text-align: center;">
+                        <small style="color: #d39e00; font-weight: bold; text-transform: uppercase; font-size: 7pt;">Promedio General</small>
+                        <div style="font-size: 16pt; font-weight: 900; color: #ffc107;"><?php echo $promedio; ?> / 5</div>
                     </div>
                 </div>
 
-                <h4 style="color: #102A57; border-bottom: 2px solid #102A57; padding-bottom: 5px; margin-bottom: 15px; margin-top: 15px; text-transform: uppercase; font-size: 11pt;">Análisis Gráfico</h4>
-                
-                <div style="display: flex; justify-content: space-between; gap: 15px; width: 100%; box-sizing: border-box;">
-                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
-                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Top Activos Costosos ($)</strong>
-                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartTopCostos"></canvas></div>
-                    </div>
-                    <div style="flex: 1; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box;">
-                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Estado del Hardware</strong>
-                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartEstado"></canvas></div>
+                <div style="display: flex; justify-content: center; width: 100%;">
+                    <div style="width: 60%; background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd;">
+                        <strong style="font-size: 8pt; color: #666; text-transform: uppercase; display:block; text-align:center; margin-bottom:10px;">Distribución de Calificaciones</strong>
+                        <div style="position: relative; height: 220px; width: 100%;"><canvas id="chartEstrellas"></canvas></div>
                     </div>
                 </div>
             </div>
             
             <script> 
-                const datosCostos = <?php echo json_encode($top_costos); ?>; 
-                const datosEstado = <?php echo json_encode($estados_bienes); ?>; 
+                const datosEstrellas = <?php echo json_encode($stats_estrellas); ?>; 
             </script>
 
             <div class="footer-section">
                 <div style="width: 40%; font-size: 8pt; color: #666; line-height: 1.4; text-align: justify;">
-                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente el inventario de bienes de uso físicos de la empresa y su valuación histórica de compra. Su validez puede ser verificada escaneando el código QR.</p>
+                    <p><strong>DECLARACIÓN JURADA:</strong> Este reporte refleja fielmente las opiniones, quejas y sugerencias cargadas por los clientes en el sistema. Su validez puede ser verificada escaneando el código QR.</p>
                 </div>
                 <div style="width: 30%; text-align: center;">
                     <img src="<?php echo $qr_url; ?>" style="width: 75px; height: 75px; border: 1px solid #ccc; padding: 2px;">
@@ -279,67 +261,32 @@ try {
 
     <script>
     document.addEventListener("DOMContentLoaded", function() {
-        // Gráfico de Barras: Top Costos
-        if(typeof datosCostos !== 'undefined' && Object.keys(datosCostos).length > 0) {
-            const allLabelsCostos = Object.keys(datosCostos);
-            const labelsCostos = allLabelsCostos.slice(0, 6).map(l => l.length > 13 ? l.substring(0, 13) + '...' : l);
-            const dataCostos = allLabelsCostos.slice(0, 6).map(l => datosCostos[l]);
-
-            if(document.getElementById('chartTopCostos')) {
-                new Chart(document.getElementById('chartTopCostos'), {
-                    type: 'bar',
-                    data: { 
-                        labels: labelsCostos, 
-                        datasets: [{ 
-                            label: 'Valor ($)', 
-                            data: dataCostos, 
-                            backgroundColor: '#102A57', 
-                            borderRadius: 4,
-                            maxBarThickness: 35 
-                        }] 
-                    },
-                    options: { 
-                        layout: { padding: { bottom: 15 } },
-                        responsive: true, maintainAspectRatio: false, animation: false, 
-                        plugins: { legend: { display: false } }, 
-                        scales: { 
-                            x: { ticks: { font: { size: 8 }, maxRotation: 45, minRotation: 45 } },
-                            y: { beginAtZero: true, ticks: { font: { size: 8 } } } 
-                        } 
-                    }
-                });
-            }
-        }
-
-        // Gráfico Circular: Estado
-        if(typeof datosEstado !== 'undefined') {
-            const labelsEstado = Object.keys(datosEstado);
-            const dataEstado = labelsEstado.map(l => datosEstado[l]);
+        if(typeof datosEstrellas !== 'undefined') {
+            const labels = Object.keys(datosEstrellas);
+            const data = labels.map(l => datosEstrellas[l]);
             
-            const coloresEstado = {
-                'Nuevo': '#198754',
-                'Bueno': '#0dcaf0',
-                'Mantenimiento': '#ffc107',
-                'Roto': '#dc3545',
-                'Baja': '#212529',
-                'Desconocido': '#6c757d'
+            const colores = {
+                '5 Estrellas (Excelente)': '#198754',
+                '4 Estrellas (Buena)': '#0dcaf0',
+                '3 Estrellas (Normal)': '#ffc107',
+                '2 Estrellas (Regular)': '#fd7e14',
+                '1 Estrella (Mala)': '#dc3545'
             };
 
-            const bgColors = labelsEstado.map(l => coloresEstado[l] || '#6c757d');
+            const bgColors = labels.map(l => colores[l] || '#6c757d');
+            const total = data.reduce((a, b) => a + b, 0);
 
-            const totalEstado = dataEstado.reduce((a, b) => a + b, 0);
-
-            if(document.getElementById('chartEstado') && totalEstado > 0) {
-                new Chart(document.getElementById('chartEstado'), {
+            if(document.getElementById('chartEstrellas') && total > 0) {
+                new Chart(document.getElementById('chartEstrellas'), {
                     type: 'doughnut',
                     data: { 
-                        labels: labelsEstado, 
-                        datasets: [{ data: dataEstado, backgroundColor: bgColors, borderWidth: 1 }] 
+                        labels: labels, 
+                        datasets: [{ data: data, backgroundColor: bgColors, borderWidth: 1 }] 
                     },
                     options: { 
                         layout: { padding: { bottom: 10 } },
                         responsive: true, maintainAspectRatio: false, animation: false, 
-                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, font: { size: 8 }, padding: 8 } } },
+                        plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 }, padding: 10 } } },
                         cutout: '55%'
                     }
                 });
@@ -350,7 +297,7 @@ try {
     // MÁRGENES DE TITANIO VANGUARD PRO
     const optGlobal = { 
         margin: [15, 10, 25, 10], 
-        filename: 'Reporte_Activos_Corporativo.pdf', 
+        filename: 'Reporte_Satisfaccion_Cliente.pdf', 
         image: { type: 'jpeg', quality: 0.98 }, 
         html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
         pagebreak: { mode: 'css', avoid: ['.evitar-corte'] }, 
@@ -377,7 +324,7 @@ try {
             const textoEmpresa = '<?php echo addslashes(strtoupper($negocio['nombre'])); ?>';
             const textoGenerador = '<?php echo addslashes($usuario_actual); ?>';
             
-            pdf.text('Inventario de Activos - ' + textoEmpresa, 10, 284);
+            pdf.text('Análisis de Satisfacción - ' + textoEmpresa, 10, 284);
             pdf.text('Página ' + i + ' de ' + totalPages, 200, 284, { align: 'right' });
             pdf.text('Emisión: <?php echo date('d/m/Y H:i'); ?> | Solicitado por: ' + textoGenerador, 10, 288);
 
@@ -403,7 +350,7 @@ try {
             cancelButtonText: 'Cerrar'
         }).then((result) => {
             if (result.isConfirmed) {
-                const msj = `🖥️ *INVENTARIO DE ACTIVOS DE LA EMPRESA*\n🏢 <?php echo $negocio['nombre']; ?>\n📄 Ver online: ${window.location.href}`;
+                const msj = `📊 *REPORTE DE SATISFACCIÓN DEL CLIENTE*\n🏢 <?php echo $negocio['nombre']; ?>\n📄 Ver online: ${window.location.href}`;
                 window.open(`https://wa.me/?text=${encodeURIComponent(msj)}`, '_blank');
             } else if (result.isDenied) {
                 enviarPorEmailReal();
@@ -421,7 +368,7 @@ try {
                     aplicarFormatoPaginas(pdf); return pdf.output('blob');
                 }).then(blob => {
                     let fData = new FormData();
-                    fData.append('email', email); fData.append('pdf_file', blob, 'Reporte_Bienes_Uso.pdf');
+                    fData.append('email', email); fData.append('pdf_file', blob, 'Reporte_Satisfaccion.pdf');
                     return fetch('acciones/enviar_email_reporte_general.php', { method: 'POST', body: fData })
                     .then(r => { if(!r.ok) throw new Error(r.statusText); return r.json(); })
                     .catch(e => Swal.showValidationMessage(`Error: ${e}`));

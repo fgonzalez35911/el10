@@ -10,8 +10,6 @@ $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
 
 require_once 'check_security.php';
 
-
-
 $usuario_id = $_SESSION['usuario_id'];
 
 // 1. Buscamos si tenés una caja abierta y cuándo se abrió
@@ -33,7 +31,6 @@ $fecha_caja = date('Y-m-d', strtotime($caja['fecha_apertura']));
 $hoy = date('Y-m-d');
 $caja_vencida = ($fecha_caja < $hoy);
 
-
 // --- FIX ERROR 500: CONSULTA SEGURA DE CONFIGURACIÓN ---
 $metodo_transferencia = 'manual'; // Por defecto
 try {
@@ -44,9 +41,7 @@ try {
             $metodo_transferencia = $conf_sys['metodo_transferencia'];
         }
     }
-} catch (Exception $e) { 
-    // Si la columna aún no existe, no rompemos la página, usamos el método manual
-}
+} catch (Exception $e) { }
 
 try {
     $sqlCupones = "SELECT * FROM cupones WHERE activo = 1 AND (fecha_limite IS NULL OR fecha_limite >= CURDATE())";
@@ -364,12 +359,49 @@ try {
         </div>
     </div>
 
+    <div class="modal fade" id="modalPesable" tabindex="-1" data-bs-backdrop="static">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0">
+          <div class="modal-header bg-success text-white">
+            <h5 class="modal-title fw-bold">⚖️ Pesar: <span id="nombreProdPesable"></span></h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body p-4">
+            <input type="hidden" id="idProdPesable">
+            <input type="hidden" id="precioKgPesable">
+            <div class="mb-3 mt-2">
+                <label class="form-label fw-bold small text-muted">Peso en Balanza (Kg) - Ej: 0.250 para 250gr</label>
+                <input type="number" step="0.001" class="form-control form-control-lg text-center fw-bold text-success" id="inputPesoManual" placeholder="0.000" style="font-size: 2rem;">
+            </div>
+            <div class="row mb-3">
+                <div class="col-6">
+                    <label class="form-label fw-bold small text-muted">Descontar Tara (Kg)</label>
+                    <select class="form-select form-select-sm mb-1 border-secondary" id="selectTaraRapida" onchange="$('#inputTaraManual').val(this.value).trigger('change');">
+                        <option value="0.000">Sin envase (0.000)</option>
+                        <?php if(!empty($taras_lista)) { foreach($taras_lista as $t): ?>
+                            <option value="<?php echo $t['peso']; ?>"><?php echo htmlspecialchars($t['nombre']); ?> (<?php echo $t['peso']; ?> Kg)</option>
+                        <?php endforeach; } ?>
+                    </select>
+                    <input type="number" step="0.001" class="form-control fw-bold" id="inputTaraManual" value="0.000">
+                </div>
+                <div class="col-6 text-end">
+                    <label class="form-label fw-bold small text-muted">Total a Cobrar</label>
+                    <h3 id="totalCalculadoPesable" class="text-dark fw-bold m-0">$0.00</h3>
+                </div>
+            </div>
+            <button type="button" class="btn btn-success btn-lg w-100 fw-bold shadow" id="btnAgregarPesableCarrito">
+                <i class="bi bi-cart-plus"></i> AGREGAR A LA VENTA
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <script>
-        // VARIABLE DE CONFIGURACIÓN PASADA DESDE PHP
         const metodoTransferenciaConf = '<?php echo $metodo_transferencia; ?>';
 
         let carrito = []; 
@@ -378,31 +410,19 @@ try {
         const modalCliente = { show: function(){ $('#modalBuscarCliente').modal('show'); }, hide: function(){ $('#modalBuscarCliente').modal('hide'); } };
         const modalMixto = { show: function(){ $('#modalPagoMixto').modal('show'); }, hide: function(){ $('#modalPagoMixto').modal('hide'); } };
 
-       $(document).ready(function() { 
-    // Bloqueo de seguridad si la caja es de un día anterior
-    <?php if($caja_vencida): ?>
-        // Desactivamos el botón de finalizar venta
-        $('#btn-finalizar').prop('disabled', true).removeClass('btn-success').addClass('btn-secondary');
+        $(document).ready(function() { 
+            <?php if($caja_vencida): ?>
+                $('#btn-finalizar').prop('disabled', true).removeClass('btn-success').addClass('btn-secondary');
+                Swal.fire({
+                    icon: 'error', title: 'Caja de día anterior', text: 'La sesión abierta es del <?php echo date('d/m/Y', strtotime($caja['fecha_apertura'])); ?>. Por seguridad, debés cerrarla antes de realizar ventas nuevas.',
+                    confirmButtonText: 'Ir a cerrar caja', confirmButtonColor: '#dc3545', allowOutsideClick: false
+                }).then((result) => { if (result.isConfirmed) { window.location.href = 'cierre_caja.php'; } });
+            <?php endif; ?>
 
-        Swal.fire({
-            icon: 'error',
-            title: 'Caja de día anterior',
-            text: 'La sesión abierta es del <?php echo date('d/m/Y', strtotime($caja['fecha_apertura'])); ?>. Por seguridad, debés cerrarla antes de realizar ventas nuevas.',
-            confirmButtonText: 'Ir a cerrar caja',
-            confirmButtonColor: '#dc3545',
-            allowOutsideClick: false
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // CAMBIO: Mandamos a cierre_caja para que no rebote
-                window.location.href = 'cierre_caja.php'; 
-            }
+            verificarVentaPausada(); 
+            cargarRapidos('');
+            $('#btn-finalizar').on('click', ejecutarVentaFinalEnBD);
         });
-    <?php endif; ?>
-
-    verificarVentaPausada(); 
-    cargarRapidos('');
-    $('#btn-finalizar').on('click', ejecutarVentaFinalEnBD);
-});
 
         document.addEventListener('keydown', function(e) {
             if(e.key === 'F2') { e.preventDefault(); $('#buscar-producto').focus(); }
@@ -819,7 +839,6 @@ try {
                 $('#box-vuelto').slideUp();
                 $('#box-mixto-info').addClass('d-none');
                 
-                // Muestra "Activar Lector" y oculta "Confirmar Venta"
                 $('#btn-escaner').removeClass('d-none');
                 $('#btn-finalizar').addClass('d-none');
             } else {
@@ -922,13 +941,10 @@ try {
             });
         });
 
-        // =========================================================================
-// NUEVO MOTOR DE ESCANEO IA (MULTI-CAPTURA + DICCIONARIO)
-// =========================================================================
-let fotosEscaner = []; // Memoria temporal para acumular capturas
+let fotosEscaner = []; 
 
 function abrirEscanerTransferencia(esSuma = false) {
-    if (!esSuma) fotosEscaner = []; // Si es un escaneo nuevo, vaciamos la memoria
+    if (!esSuma) fotosEscaner = []; 
     
     let input = document.createElement('input');
     input.type = 'file';
@@ -951,7 +967,7 @@ function abrirEscanerTransferencia(esSuma = false) {
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 
                 let fotoBase64 = canvas.toDataURL('image/jpeg', 0.80);
-                fotosEscaner.push(fotoBase64); // Guardamos la foto en el paquete
+                fotosEscaner.push(fotoBase64);
 
                 Swal.fire({
                     title: fotosEscaner.length > 1 ? '¡Parte agregada!' : '¿La foto está nítida?',
@@ -973,8 +989,8 @@ function abrirEscanerTransferencia(esSuma = false) {
                         $.ajax({
                             url: 'acciones/procesar_ocr_transferencia.php',
                             type: 'POST',
-                            data: { imagenes_base64: fotosEscaner }, // Mandamos el paquete entero
-                            timeout: 25000, // Le damos más tiempo por si mandó 2 o 3 fotos
+                            data: { imagenes_base64: fotosEscaner }, 
+                            timeout: 25000, 
                             success: function(res) {
                                 if (res.trim() === "OK") {
                                     Swal.fire('¡Listo!', 'Transferencia registrada.', 'success').then(() => {
@@ -993,9 +1009,9 @@ function abrirEscanerTransferencia(esSuma = false) {
                             }
                         });
                     } else if (result.isDenied) {
-                        abrirEscanerTransferencia(true); // Abre la cámara pero NO borra la memoria
+                        abrirEscanerTransferencia(true); 
                     } else {
-                        fotosEscaner.pop(); // Borra la última foto mala
+                        fotosEscaner.pop(); 
                         abrirEscanerTransferencia(true); 
                     }
                 });
@@ -1133,25 +1149,88 @@ function abrirEscanerTransferencia(esSuma = false) {
             });
         }
 
-        function abrirModalClienteRapido() { $('#modalClienteRapido').modal('show'); }
-
-        function guardarClienteRapido() {
-            $.post('acciones/cliente_rapido.php', {
-                nombre: $('#rapido-nombre').val(), dni: $('#rapido-dni').val(),
-                whatsapp: $('#rapido-wa').val(), email: $('#rapido-email').val()
-            }, function(res) {
-                if(res.status === 'success') {
-                    seleccionarCliente(res.id, res.nombre, 0, 0);
+        // =====================================
+        // CLIENTE RÁPIDO CON SWEETALERT2
+        // =====================================
+        function abrirModalClienteRapido() {
+            Swal.fire({
+                title: '<i class="bi bi-person-plus-fill text-success"></i> Cliente Rápido',
+                html: `
+                    <div class="text-start">
+                        <div class="mb-2">
+                            <label class="small fw-bold text-muted">Nombre Completo *</label>
+                            <input type="text" id="sa2-rapido-nombre" class="form-control fw-bold" placeholder="Ej: Juan Perez" required onkeyup="generarUsuarioRapido()">
+                        </div>
+                        <div class="mb-2">
+                            <label class="small fw-bold text-muted">Email (Opcional - Para tickets)</label>
+                            <input type="email" id="sa2-rapido-email" class="form-control" placeholder="correo@ejemplo.com">
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6">
+                                <label class="small fw-bold text-muted">DNI / CUIT</label>
+                                <input type="number" id="sa2-rapido-dni" class="form-control" placeholder="Opcional">
+                            </div>
+                            <div class="col-6">
+                                <label class="small fw-bold text-muted">Usuario Web</label>
+                                <input type="text" id="sa2-rapido-usuario" class="form-control bg-light text-primary fw-bold" readonly>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="small fw-bold text-muted">WhatsApp (Ej: 54911...)</label>
+                            <input type="number" id="sa2-rapido-telefono" class="form-control" placeholder="Opcional">
+                        </div>
+                    </div>
+                `,
+                showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-save"></i> Guardar y Seleccionar',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#198754',
+                preConfirm: () => {
+                    const nombre = document.getElementById('sa2-rapido-nombre').value.trim();
+                    const email = document.getElementById('sa2-rapido-email').value.trim();
+                    const dni = document.getElementById('sa2-rapido-dni').value.trim();
+                    const usuario = document.getElementById('sa2-rapido-usuario').value.trim();
+                    const telefono = document.getElementById('sa2-rapido-telefono').value.trim();
+                    
+                    if (!nombre) {
+                        Swal.showValidationMessage('El nombre es obligatorio');
+                        return false;
+                    }
+                    
+                    return $.post('acciones/cliente_rapido.php', {
+                        nombre: nombre, email: email, dni: dni, usuario: usuario, whatsapp: telefono
+                    }).then(res => {
+                        if (res.status !== 'success') { throw new Error(res.msg || 'Error al guardar en la Base de Datos'); }
+                        return res;
+                    }).catch(err => {
+                        Swal.showValidationMessage(err.message || 'Error de conexión');
+                    });
+                }
+            }).then((result) => {
+                if (result.isConfirmed && result.value && result.value.status === 'success') {
+                    // Cierra el modal viejo por si acaso y selecciona al cliente
                     $('#modalClienteRapido').modal('hide');
-                    Swal.fire('¡Listo!', 'Cliente registrado', 'success');
-                } else { Swal.fire('Error', res.msg, 'error'); }
-            }, 'json');
+                    seleccionarCliente(result.value.id, result.value.nombre, 0, 0); 
+                    Swal.fire({ icon: 'success', title: '¡Creado!', text: 'El cliente ya está cargado en la venta.', timer: 2000, showConfirmButton: false });
+                }
+            });
+        }
+
+        function generarUsuarioRapido() {
+            let nombreVal = document.getElementById('sa2-rapido-nombre').value.trim().toLowerCase();
+            nombreVal = nombreVal.replace(/ñ/g, 'n').replace(/Ñ/g, 'n');
+            let partes = nombreVal.split(' ').filter(p => p.length > 0);
+            let userSugerido = '';
+            if (partes.length === 1) { userSugerido = partes[0]; } 
+            else if (partes.length >= 2) { userSugerido = partes[0].charAt(0) + partes[partes.length - 1]; }
+            userSugerido = userSugerido.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+            document.getElementById('sa2-rapido-usuario').value = userSugerido;
         }
 
         function enviarTicketWhatsApp(idVenta) {
             Swal.fire({
                 title: 'Enviar WhatsApp', input: 'text', inputLabel: 'Confirmar número',
-                inputValue: $('#rapido-wa').val() || '549', showCancelButton: true, confirmButtonText: 'Enviar'
+                inputValue: '549', showCancelButton: true, confirmButtonText: 'Enviar'
             }).then((result) => {
                 if (result.isConfirmed) {
                     let msg = encodeURIComponent('Hola! Te adjuntamos tu ticket de compra #'+idVenta+'. Míralo aquí: http://'+window.location.host+'/ticket_digital.php?id='+idVenta);
@@ -1205,73 +1284,5 @@ function abrirEscanerTransferencia(esSuma = false) {
         }
         
     </script>
-<div class="modal fade" id="modalClienteRapido" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title fw-bold">Registro Rápido de Cliente</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-4">
-                <div class="mb-3">
-                    <label class="small fw-bold">Nombre Completo *</label>
-                    <input type="text" id="rapido-nombre" class="form-control fw-bold">
-                </div>
-                <div class="mb-3">
-                    <label class="small fw-bold">DNI / CUIT *</label>
-                    <input type="text" id="rapido-dni" class="form-control">
-                </div>
-                <div class="mb-3">
-                    <label class="small fw-bold">WhatsApp (Con código de país, ej: 54911...)</label>
-                    <input type="text" id="rapido-wa" class="form-control" placeholder="54911...">
-                </div>
-                <div class="mb-3">
-                    <label class="small fw-bold">Correo Electrónico</label>
-                    <input type="email" id="rapido-email" class="form-control">
-                </div>
-                <button class="btn btn-success w-100 fw-bold py-2" onclick="guardarClienteRapido()">
-                    <i class="bi bi-save"></i> GUARDAR Y SELECCIONAR
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-<div class="modal fade" id="modalPesable" tabindex="-1" data-bs-backdrop="static">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content border-0">
-      <div class="modal-header bg-success text-white">
-        <h5 class="modal-title fw-bold">⚖️ Pesar: <span id="nombreProdPesable"></span></h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body p-4">
-        <input type="hidden" id="idProdPesable">
-        <input type="hidden" id="precioKgPesable">
-        <div class="mb-3 mt-2">
-            <label class="form-label fw-bold small text-muted">Peso en Balanza (Kg) - Ej: 0.250 para 250gr</label>
-            <input type="number" step="0.001" class="form-control form-control-lg text-center fw-bold text-success" id="inputPesoManual" placeholder="0.000" style="font-size: 2rem;">
-        </div>
-        <div class="row mb-3">
-            <div class="col-6">
-                <label class="form-label fw-bold small text-muted">Descontar Tara (Kg)</label>
-                <select class="form-select form-select-sm mb-1 border-secondary" id="selectTaraRapida" onchange="$('#inputTaraManual').val(this.value).trigger('change');">
-                    <option value="0.000">Sin envase (0.000)</option>
-                    <?php if(!empty($taras_lista)) { foreach($taras_lista as $t): ?>
-                        <option value="<?php echo $t['peso']; ?>"><?php echo htmlspecialchars($t['nombre']); ?> (<?php echo $t['peso']; ?> Kg)</option>
-                    <?php endforeach; } ?>
-                </select>
-                <input type="number" step="0.001" class="form-control fw-bold" id="inputTaraManual" value="0.000">
-            </div>
-            <div class="col-6 text-end">
-                <label class="form-label fw-bold small text-muted">Total a Cobrar</label>
-                <h3 id="totalCalculadoPesable" class="text-dark fw-bold m-0">$0.00</h3>
-            </div>
-        </div>
-        <button type="button" class="btn btn-success btn-lg w-100 fw-bold shadow" id="btnAgregarPesableCarrito">
-            <i class="bi bi-cart-plus"></i> AGREGAR A LA VENTA
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <?php require_once 'includes/layout_footer.php'; ?>
