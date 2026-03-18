@@ -22,11 +22,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit;
     }
 
+    $conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+    $rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
     try {
-        $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, whatsapp, email, usuario, fecha_registro, saldo_deudor, puntos_acumulados, limite_credito) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0, 0)";
+        $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, whatsapp, email, usuario, fecha_registro, saldo_deudor, puntos_acumulados, limite_credito, tipo_negocio) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0, 0, ?)";
         $stmt = $conexion->prepare($sql);
-        $stmt->execute([$nombre, $dni, $dni, $whatsapp, $whatsapp, $email, $usuario]);
+        $stmt->execute([$nombre, $dni, $dni, $whatsapp, $whatsapp, $email, $usuario, $rubro_actual]);
         
         $id = $conexion->lastInsertId();
 
