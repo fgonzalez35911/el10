@@ -17,11 +17,19 @@ if(!isset($nombre_mostrar) || !isset($rol_usuario) || !isset($logo_url)) {
     $nombre_mostrar = !empty($datosUsuario['nombre_completo']) ? $datosUsuario['nombre_completo'] : $datosUsuario['usuario'];
     $rol_usuario = $datosUsuario['id_rol'] ?? 3;
 
-    // 2. DATOS DE CONFIGURACIÓN (LOGO)
-    $stmtConfig = $conexion->query("SELECT logo_url, nombre_negocio FROM configuracion WHERE id=1");
+    // 2. DATOS DE CONFIGURACIÓN (LOGO Y COLOR GLOBAL)
+    $stmtConfig = $conexion->query("SELECT logo_url, nombre_negocio, color_barra_nav FROM configuracion WHERE id=1");
     $configData = $stmtConfig->fetch(PDO::FETCH_ASSOC);
     $logo_url = $configData['logo_url'] ?? '';
     $nombre_negocio = $configData['nombre_negocio'] ?? 'EL 10 POS';
+    $color_sistema = $configData['color_barra_nav'] ?? '#102A57'; // Color global
+} else {
+    // Fallback por si la variable no viene de un archivo anterior
+    if (!isset($color_sistema)) {
+        $stmtColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+        $colorData = $stmtColor->fetch(PDO::FETCH_ASSOC);
+        $color_sistema = $colorData['color_barra_nav'] ?? '#102A57';
+    }
 }
 $current_page = basename($_SERVER['PHP_SELF']);
 
@@ -43,9 +51,10 @@ $es_admin = ($rol_usuario <= 2);
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <style>
         :root {
-            --azul-fuerte: #1a3c75;    /* Azul Camiseta Suplente */
-            --celeste-claro: #e3f2fd;  /* Celeste muy suave */
-            --celeste-afa: #75AADB;    /* Celeste Bandera */
+            --color-sistema: <?php echo $color_sistema; ?>;
+            --azul-fuerte: var(--color-sistema);    /* Dinámico desde la BD */
+            --celeste-claro: #e3f2fd;               /* Mantenemos el fondo de hover suave */
+            --celeste-afa: var(--color-sistema);    /* Dinámico desde la BD */
             --blanco: #ffffff;
             --negro: #212529;
             --gris-fondo: #f8f9fa;
@@ -54,7 +63,7 @@ $es_admin = ($rol_usuario <= 2);
         .font-cancha, h1, h2, h3, h4, .navbar-brand { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.5px; }
 
         /* NAVBAR */
-        .navbar-10 { background-color: var(--blanco); border-bottom: 4px solid var(--celeste-afa); box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .navbar-10 { background-color: var(--blanco); border-bottom: 1px solid var(--celeste-afa); box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
         
         /* LOGO EN NAVBAR */
         .navbar-brand { font-size: 1.5rem; color: var(--azul-fuerte) !important; font-weight: 700; display: flex; align-items: center; gap: 10px; }
@@ -184,7 +193,7 @@ $es_admin = ($rol_usuario <= 2);
 
                 <?php if(($es_admin || in_array('ver_clientes', $permisos)) && ($configData['modulo_clientes'] ?? 1) == 1): ?>
                 <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">CLUB DEL 10</a>
+                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">EL CLUB</a>
                     <ul class="dropdown-menu shadow-sm">
                         <?php if($es_admin || in_array('ver_clientes', $permisos)): ?>
                         <li><a class="dropdown-item" href="clientes.php"><i class="bi bi-people-fill text-info"></i> Clientes</a></li>

@@ -1,17 +1,9 @@
 <?php
 // includes/layout_footer.php - FOOTER DINÁMICO Y PROFESIONAL
 
-// 1. Aseguramos tener los datos de configuración de la BD
-if (!isset($conf)) {
-    try {
-        $conf = $conexion->query("SELECT * FROM configuracion LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-    } catch (Exception $e) {
-        $conf = [];
-    }
-}
-
-$nombre_negocio = $conf['nombre_negocio'] ?? 'SISTEMA DE GESTIÓN';
-$color_footer = $conf['color_barra_nav'] ?? '#102A57'; // Toma el color azul corporativo o el de la BD
+// Utilizamos las variables globales definidas previamente en layout_header.php
+$color_footer = $color_sistema ?? '#102A57';
+$nombre_negocio_footer = $nombre_negocio ?? 'SISTEMA DE GESTIÓN';
 ?>
 </div> <style>
     /* FORZAR FOOTER ABAJO (Elimina el espacio en blanco) */
@@ -144,6 +136,36 @@ $color_footer = $conf['color_barra_nav'] ?? '#102A57'; // Toma el color azul cor
     }
     setInterval(updateGlobalClock, 1000); updateGlobalClock();
 </script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
+<style>
+    /* Ajustes para que el buscador encaje perfecto con tu diseño Premium */
+    .select2-container .select2-selection--single {
+        height: 38px !important;
+        border: 1px solid #dee2e6 !important;
+        border-right: none !important;
+        border-radius: 0.375rem 0 0 0.375rem !important;
+        display: flex;
+        align-items: center;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+        height: 36px !important;
+    }
+    .select2-selection__rendered {
+        font-weight: bold !important;
+        color: #102A57 !important;
+    }
+</style>
+
+<script>
+    $(document).ready(function() {
+        // Inicializamos el buscador en el desplegable
+        $('#select_clientes').select2({
+            placeholder: "Escribí para buscar...",
+            allowClear: false
+        });
+    });
+</script>
 </body>
 </html>
