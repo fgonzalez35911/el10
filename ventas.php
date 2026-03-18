@@ -43,18 +43,51 @@ try {
     }
 } catch (Exception $e) { }
 
+// Detectar el rubro actual para filtrar datos visuales
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 try {
-    $sqlCupones = "SELECT * FROM cupones WHERE activo = 1 AND (fecha_limite IS NULL OR fecha_limite >= CURDATE())";
+    $sqlCupones = "SELECT * FROM cupones WHERE activo = 1 AND (fecha_limite IS NULL OR fecha_limite >= CURDATE()) AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)";
     $cupones_db = $conexion->query($sqlCupones)->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) { $cupones_db = []; }
 
 try {
-    $taras_lista = $conexion->query("SELECT * FROM taras_predefinidas ORDER BY peso ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $taras_lista = $conexion->query("SELECT * FROM taras_predefinidas WHERE tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL ORDER BY peso ASC")->fetchAll(PDO::FETCH_ASSOC);
 } catch(Exception $e) { $taras_lista = []; }
 ?>
 <?php require_once 'includes/layout_header.php'; ?>
 
 <style>
+    /* 1. OCULTAR BARRA DE ATAJOS POR DEFECTO (Para celulares y modo normal) */
+    #pos-footer { display: none !important; }
+
+    /* 2. MODO CAJA - SOLO PARA COMPUTADORAS (Pantalla grande) */
+    @media (min-width: 992px) {
+        body.modo-caja-activo header, body.modo-caja-activo .navbar, body.modo-caja-activo .topbar, 
+        body.modo-caja-activo aside, body.modo-caja-activo .sidebar, body.modo-caja-activo footer { display: none !important; }
+        body.modo-caja-activo .container, body.modo-caja-activo .container-fluid { max-width: 100% !important; width: 100% !important; padding: 10px 20px 60px 20px !important; margin: 0 !important; }
+        
+        /* Solo se activa la barra si el modo caja está encendido en PC */
+        body.modo-caja-activo #pos-footer { 
+            display: flex !important; 
+            position: fixed; bottom: 0; left: 0; width: 100%; 
+            background: #111; color: white; padding: 8px 15px; 
+            z-index: 9999; border-top: 3px solid #0d6efd; 
+            overflow-x: auto; white-space: nowrap; 
+            gap: 15px; align-items: center; 
+        }
+        #pos-footer kbd { background: #333; color: #0dfd05; font-family: monospace; padding: 3px 6px; border-radius: 4px; border: 1px solid #555; margin-right: 5px; font-weight: bold; }
+        #pos-footer span { font-size: 0.85rem; font-weight: bold; text-transform: uppercase; color: #ddd; }
+    }
+
+    /* SELECCIÓN EN BUSCADOR */
+    .item-resultado.seleccionado { background-color: #0d6efd !important; color: white !important; border-left: 4px solid #0a58ca !important; }
+    .item-resultado.seleccionado > div > .text-muted, .item-resultado.seleccionado > div > .text-danger { color: #e9ecef !important; }
+    .item-resultado.seleccionado .badge { background-color: white !important; color: #0d6efd !important; border-color: white !important; }
+    .item-resultado.seleccionado .badge .text-muted { color: #6c757d !important; text-decoration: line-through; }
+    .item-resultado.seleccionado .badge .text-danger { color: #dc3545 !important; }
+
     .tabla-ventas { height: 450px; overflow-y: auto; background: white; border: 1px solid #dee2e6; border-radius: 8px; }
     @media (max-width: 992px) { .tabla-ventas { height: 300px; } }
     
@@ -73,6 +106,84 @@ try {
     .btn-pausada-activa { animation: parpadeo 1.5s infinite; background-color: #ffc107 !important; color: #000 !important; border: 2px solid #e0a800 !important; }
 
     .card-pos { border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 12px; }
+
+    /* INDICADOR DE NAVEGACIÓN POR TECLADO (Recuadro Naranja Perfecto) */
+    button:focus, .btn:focus, input:focus, select:focus, a:focus, .list-group-item:focus {
+        /* Usamos box-shadow para que el brillo naranja quede dentro del área visible y no se corte */
+        box-shadow: inset 0 0 0 3px #ff9800, 0 0 0 3px #ff9800 !important;
+        outline: none !important; /* Quitamos el anterior que se veía mal */
+        position: relative;
+        z-index: 50; /* Lo trae al frente para que no lo tape el vecino */
+        border-radius: 4px;
+        border-color: #ff9800 !important;
+    }
+    /* =========================================
+       TEMA OSCURO EXCLUSIVO PARA MODO CAJA
+       ========================================= */
+    body.modo-caja-activo { background-color: #121212 !important; color: #e0e0e0 !important; }
+    body.modo-caja-activo .bg-white, body.modo-caja-activo .bg-light { background-color: #1e1e1e !important; }
+    body.modo-caja-activo .card { background-color: #1e1e1e !important; border-color: #333 !important; }
+    body.modo-caja-activo .card-header { background-color: #2a2a2a !important; border-bottom-color: #444 !important; color: #fff !important; }
+    
+    /* Ajustes de contraste para textos oscuros en modo caja */
+    body.modo-caja-activo .text-dark, 
+    body.modo-caja-activo label, 
+    body.modo-caja-activo .producto-rapido .fw-bold { color: #ffffff !important; }
+    body.modo-caja-activo .text-muted { color: #ced4da !important; } /* Gris más claro para que resalte */
+    
+    /* Botones de Categorías */
+    body.modo-caja-activo .btn-outline-secondary { color: #ffffff !important; border-color: #6c757d !important; }
+    body.modo-caja-activo .btn-outline-secondary:hover { background-color: #343a40 !important; }
+
+    /* =========================================
+       MODALES, SWEETALERT Y AUTOCOMPLETADO OSCUROS
+       ========================================= */
+    body.modo-caja-activo .modal-content { background-color: #1e1e1e !important; color: #f8f9fa !important; border: 1px solid #444 !important; }
+    body.modo-caja-activo .modal-header { border-bottom: 1px solid #333 !important; }
+    body.modo-caja-activo .modal-footer { border-top: 1px solid #333 !important; }
+    body.modo-caja-activo .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+    body.modo-caja-activo .modal-body label, body.modo-caja-activo .modal-body .text-muted { color: #ced4da !important; }
+    
+    /* Alertas SweetAlert2 */
+    /* Alertas SweetAlert2 y Listas de Clientes */
+    body.modo-caja-activo .swal2-popup, 
+    body.modo-caja-activo .list-group-item { background-color: #1e1e1e !important; color: #f8f9fa !important; border: 1px solid #333 !important; }
+    
+    body.modo-caja-activo .list-group-item:hover { background-color: #2a2a2a !important; }
+    body.modo-caja-activo .list-group-item .text-muted { color: #aaa !important; }
+    body.modo-caja-activo .list-group-item .text-primary { color: #4dabf7 !important; } /* Un azul más claro para que resalte */
+    body.modo-caja-activo .swal2-title, body.modo-caja-activo .swal2-html-container { color: #f8f9fa !important; }
+    body.modo-caja-activo .swal2-input, body.modo-caja-activo .swal2-select, body.modo-caja-activo .swal2-textarea { 
+        background-color: #2a2a2a !important; color: #fff !important; border-color: #555 !important; 
+    }
+    body.modo-caja-activo .swal2-input:focus { border-color: #ff9800 !important; box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.5) !important; }
+    
+    /* Desplegable de Autocompletado (ej: Buscar por DNI) */
+    body.modo-caja-activo .ui-autocomplete { background-color: #2a2a2a !important; color: #fff !important; border: 1px solid #444 !important; }
+    body.modo-caja-activo .ui-menu-item-wrapper { color: #f8f9fa !important; }
+    body.modo-caja-activo .ui-state-active, body.modo-caja-activo .ui-widget-content .ui-state-active { 
+        background-color: #ff9800 !important; color: #fff !important; border-color: #ff9800 !important; 
+    }
+
+    
+    /* Tablas */
+    body.modo-caja-activo .tabla-ventas { background-color: #1e1e1e !important; border-color: #444 !important; }
+    body.modo-caja-activo .table { color: #e0e0e0 !important; }
+    body.modo-caja-activo .table-light, body.modo-caja-activo .table thead th { background-color: #2a2a2a !important; color: #fff !important; border-color: #444 !important; }
+    body.modo-caja-activo .table td { border-color: #444 !important; background-color: transparent !important; color: #e0e0e0 !important; }
+    body.modo-caja-activo .table-hover tbody tr:hover td { background-color: #333 !important; color: #fff !important; }
+    
+    /* Inputs y Selects */
+    body.modo-caja-activo .form-control, body.modo-caja-activo .form-select, body.modo-caja-activo .input-group-text {
+        background-color: #2a2a2a !important; color: #fff !important; border-color: #444 !important;
+    }
+    body.modo-caja-activo input::placeholder { color: #888 !important; }
+    
+    /* Buscador Resultados */
+    body.modo-caja-activo .item-resultado { background-color: #2a2a2a !important; border-bottom-color: #444 !important; color: #fff !important; }
+    body.modo-caja-activo .item-resultado:hover { background-color: #3a3a3a !important; }
+    body.modo-caja-activo #lista-resultados { background-color: #2a2a2a !important; border: 1px solid #444 !important; }
+    body.modo-caja-activo .item-resultado .badge.bg-light { background-color: #444 !important; color: #fff !important; border-color: #555 !important; }
 </style>
 
     <div class="container pb-5"> 
@@ -83,12 +194,10 @@ try {
                     <div class="card-body position-relative">
                         <div class="input-group input-group-lg">
                             <span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span>
-                            <input type="text" id="buscar-producto" class="form-control border-start-0" placeholder="Buscar producto o escanear..." autocomplete="off">
-                        </div>
-                        <div class="d-flex justify-content-between mt-1 px-1">
-                            <div class="small text-muted">
-                                <i class="bi bi-keyboard"></i> Atajos: <b>F2</b> Buscar | <b>F4</b> Clientes | <b>F7</b> Pausar | <b>F8</b> Recuperar | <b>F9</b> Cobrar
-                            </div>
+                            <input type="text" id="buscar-producto" class="form-control border-start-0" placeholder="Buscar producto o escanear (F1)..." autocomplete="off">
+                            <button class="btn btn-primary fw-bold d-none d-lg-inline-block" id="btn-modo-caja" onclick="toggleModoCaja()" style="border-radius: 0 8px 8px 0;">
+                                <i class="bi bi-arrows-fullscreen"></i> MODO CAJA
+                            </button>
                         </div>
                         <div id="lista-resultados" class="list-group position-absolute w-100 shadow mt-1" style="z-index: 2000; display:none;"></div>
                     </div>
@@ -98,7 +207,7 @@ try {
                     <div class="card-header bg-white py-2">
                         <div class="d-flex gap-2 overflow-auto pb-1" id="filtros-rapidos">
                             <button class="btn btn-sm btn-dark fw-bold rounded-pill text-nowrap" onclick="cargarRapidos('')">Todos</button>
-                            <?php foreach($conexion->query("SELECT * FROM categorias WHERE activo=1") as $c): ?>
+                            <?php foreach($conexion->query("SELECT * FROM categorias WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)") as $c): ?>
                                 <button class="btn btn-sm btn-outline-secondary rounded-pill text-nowrap" onclick="cargarRapidos(<?php echo $c->id; ?>)">
                                     <?php echo $c->nombre; ?>
                                 </button>
@@ -271,6 +380,22 @@ try {
         </div>
     </div>
 
+    <div id="pos-footer">
+        <span><kbd>F1</kbd>BUSCAR</span>
+        <span><kbd>F2</kbd>EFECTIVO</span>
+        <span><kbd>F3</kbd>TRANSF.</span>
+        <span><kbd>F4</kbd>M.PAGO</span>
+        <span class="text-warning"><kbd>F6</kbd>ESPERA</span>
+        <span class="text-info"><kbd>F7</kbd>RECUPERAR</span>
+        <span><kbd>F8</kbd>DESC $</span>
+        <span class="text-info"><kbd>F9</kbd>CLIENTES</span>
+        <span class="text-danger"><kbd>F10</kbd>CANCELAR VENTA</span>
+        <span class="text-success"><kbd>F12</kbd>COBRAR</span>
+        <span><kbd>INS</kbd>CLI NUEVO</span>
+        <span class="ms-auto" style="color:#888;"><kbd>SUPR</kbd>BORRAR ITEM</span>
+        <span style="color:#888;"><kbd>TAB / &uarr; &darr;</kbd>NAVEGAR</span>
+    </div>
+
     <div class="modal fade" id="modalBuscarCliente" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0">
@@ -421,20 +546,121 @@ try {
 
             verificarVentaPausada(); 
             cargarRapidos('');
-            $('#btn-finalizar').on('click', ejecutarVentaFinalEnBD);
+            
+            // FIX: Filtramos el evento de clic para que no colapse el AJAX
+            $('#btn-finalizar').off('click').on('click', function(e) {
+                e.preventDefault();
+                ejecutarVentaFinalEnBD('completada', null);
+            });
         });
 
+        // =====================================
+        // MODO CAJA (FULLSCREEN)
+        // =====================================
+        function toggleModoCaja() {
+            let elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                let req = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen;
+                if(req) {
+                    req.call(elem).then(() => {
+                        // Magia: Evita que ESC salga de pantalla completa
+                        if('keyboard' in navigator && navigator.keyboard.lock) { navigator.keyboard.lock(['Escape']).catch(e => console.log(e)); }
+                    }).catch(err => console.log(err));
+                }
+                document.body.classList.add('modo-caja-activo');
+                $('#btn-modo-caja').html('<i class="bi bi-fullscreen-exit"></i> SALIR MODO CAJA').removeClass('btn-primary').addClass('btn-danger');
+                $('#buscar-producto').focus();
+            } else {
+                let exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                if(exit) exit.call(document);
+                if('keyboard' in navigator && navigator.keyboard.unlock) { navigator.keyboard.unlock(); }
+                document.body.classList.remove('modo-caja-activo');
+                $('#btn-modo-caja').html('<i class="bi bi-arrows-fullscreen"></i> MODO CAJA').removeClass('btn-danger').addClass('btn-primary');
+            }
+        }
+
+        document.addEventListener('fullscreenchange', (event) => {
+            if (!document.fullscreenElement) {
+                if('keyboard' in navigator && navigator.keyboard.unlock) { navigator.keyboard.unlock(); }
+                document.body.classList.remove('modo-caja-activo');
+                $('#btn-modo-caja').html('<i class="bi bi-arrows-fullscreen"></i> MODO CAJA').removeClass('btn-danger').addClass('btn-primary');
+            }
+        });
+
+        // =====================================
+        // SUPER MAPA DE ATAJOS DE TECLADO (LIMPIO Y CORREGIDO)
+        // =====================================
         document.addEventListener('keydown', function(e) {
-            if(e.key === 'F2') { e.preventDefault(); $('#buscar-producto').focus(); }
-            if(e.key === 'F4') { e.preventDefault(); abrirModalClientes(); }
-            if(e.key === 'F7') { e.preventDefault(); suspenderVentaActual(); }
-            if(e.key === 'F8') { e.preventDefault(); abrirModalSuspendidas(); }
-            if(e.key === 'F9') { e.preventDefault(); $('#btn-finalizar').click(); }
+            if(e.key === 'F5') return; // Dejamos que F5 actualice, pero capturamos F11
+
+            // Atajos especiales para cerrar alertas SIN tocar ESC (para no salir de Fullscreen)
             if(Swal.isVisible()) {
                 if(e.key === 'Enter') { 
-                    const confirmBtn = Swal.getConfirmButton();
-                    if(confirmBtn) confirmBtn.click();
+                    e.preventDefault();
+                    if(Swal.getTitle() && Swal.getTitle().innerText === 'Esperando Pago') {
+                        Swal.close();
+                        if(intervaloMP) clearInterval(intervaloMP);
+                        $('#btn-sync-mp button').prop('disabled', false).html('<i class="bi bi-cloud-upload"></i> CARGAR PRECIO AL QR');
+                        $('#metodo-pago').val('Efectivo').trigger('change');
+                    } else {
+                        const confirmBtn = Swal.getConfirmButton();
+                        if(confirmBtn) confirmBtn.click();
+                    }
                 }
+                if(e.key === '-' || e.key === 'Backspace' || e.key === 'Escape') {
+                    e.preventDefault();
+                    Swal.close();
+                }
+                return; 
+            }
+
+            switch(e.key) {
+                case 'F1': e.preventDefault(); $('#buscar-producto').focus(); break;
+                case 'F2': e.preventDefault(); $('#metodo-pago').val('Efectivo').trigger('change'); setTimeout(() => $('#paga-con').focus(), 100); break;
+                case 'F3': e.preventDefault(); $('#metodo-pago').val('Transferencia').trigger('change'); abrirEscanerTransferencia(); break;
+                case 'F4': e.preventDefault(); $('#metodo-pago').val('mercadopago').trigger('change'); enviarMontoAMercadoPago(); break;
+                case 'F6': e.preventDefault(); suspenderVentaActual(); break;
+                case 'F7': e.preventDefault(); abrirModalSuspendidas(); break;
+                case 'F8': e.preventDefault(); $('#input-desc-manual').focus(); break;
+                case 'F9': e.preventDefault(); abrirModalClientes(); break;
+                case 'F10': 
+                    e.preventDefault(); 
+                    cancelarVentaTotal();
+                    break;
+                case 'F12':
+                    e.preventDefault(); 
+                    if(!$('#btn-finalizar').hasClass('d-none') && !$('#btn-finalizar').prop('disabled')) { 
+                        ejecutarVentaFinalEnBD('completada', null); 
+                    } 
+                    break;
+                case 'Insert': e.preventDefault(); abrirModalClienteRapido(); break;
+                case 'Delete': 
+                    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+                    e.preventDefault();
+                    if(carrito.length === 0) return;
+                    
+                    if(carrito.length === 1) {
+                        let n = carrito[0].descripcion;
+                        Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 }).fire({ icon: 'warning', title: `Eliminado: ${n}` });
+                        del(0);
+                    } else {
+                        let opciones = {};
+                        carrito.forEach((item, idx) => { opciones[idx] = `[${item.cantidad}x] ${item.descripcion} ($${item.precio})`; });
+                        Swal.fire({
+                            title: '🗑️ Eliminar Producto', text: 'Usá las flechitas y apretá Enter', input: 'select', inputOptions: opciones, inputValue: carrito.length - 1,
+                            showCancelButton: true, confirmButtonText: 'Eliminar', cancelButtonText: 'Cancelar', confirmButtonColor: '#dc3545',
+                            didOpen: () => { const select = Swal.getInput(); select.style.padding = '10px'; select.style.fontSize = '1.1rem'; select.focus(); }
+                        }).then((result) => {
+                            if (result.isConfirmed && result.value !== '') {
+                                let idx = parseInt(result.value);
+                                let n = carrito[idx].descripcion;
+                                Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 }).fire({ icon: 'warning', title: `Eliminado: ${n}` });
+                                del(idx);
+                            }
+                            setTimeout(() => $('#buscar-producto').focus(), 100);
+                        });
+                    }
+                    break;
             }
         });
         
@@ -484,7 +710,7 @@ try {
             localStorage.setItem('venta_pausada', JSON.stringify(estado));
             vaciarCarrito(); verificarVentaPausada();
             const Toast = Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 2000});
-            Toast.fire({icon: 'info', title: 'Venta puesta en espera (F8)'});
+            Toast.fire({icon: 'info', title: 'Venta puesta en espera (F6)'});
         }
         function recuperarVenta() {
             let data = localStorage.getItem('venta_pausada'); if(!data) return;
@@ -503,9 +729,47 @@ try {
             else $('#btn-recuperar').addClass('d-none').removeClass('btn-pausada-activa');
         }
 
-        $('#buscar-producto').on('keyup', function(e) {
-            if(e.key === 'Enter') {
-                let term = $(this).val(); if(term.length < 1) return;
+        // =====================================
+        // BUSCADOR INTELIGENTE CON TECLADO
+        // =====================================
+        let indexResultados = -1;
+        $('#buscar-producto').on('keydown', function(e) {
+            let items = $('.item-resultado');
+            if (items.length > 0) {
+                if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+                    e.preventDefault();
+                    indexResultados++;
+                    if (indexResultados >= items.length) indexResultados = 0;
+                    items.removeClass('seleccionado');
+                    $(items[indexResultados]).addClass('seleccionado')[0].scrollIntoView({ block: 'nearest' });
+                    return;
+                } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+                    e.preventDefault();
+                    indexResultados--;
+                    if (indexResultados < 0) indexResultados = items.length - 1;
+                    items.removeClass('seleccionado');
+                    $(items[indexResultados]).addClass('seleccionado')[0].scrollIntoView({ block: 'nearest' });
+                    return;
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (indexResultados >= 0) {
+                        $(items[indexResultados]).click();
+                        indexResultados = -1;
+                        return;
+                    }
+                }
+            }
+            
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                let term = $(this).val(); 
+                if(term.length < 1) return;
+                
+                if (items.length === 1) {
+                    $(items[0]).click();
+                    return;
+                }
+
                 if(term.startsWith('20') && term.length === 13) {
                     let pluBalanza = term.substring(2, 6); 
                     let pesoGramos = term.substring(6, 11);
@@ -529,9 +793,15 @@ try {
                         let exacto = res.data.find(p => p.codigo_barras == term);
                         exacto ? seleccionarProducto(exacto) : (res.data.length === 1 ? seleccionarProducto(res.data[0]) : null);
                     }
-                }); return;
+                });
             }
-            let term = $(this).val(); if(term.length < 1) { $('#lista-resultados').hide(); return; }
+        });
+
+        $('#buscar-producto').on('keyup', function(e) {
+            if(e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab' || e.key === 'Enter') return;
+            indexResultados = -1;
+            let term = $(this).val(); 
+            if(term.length < 1) { $('#lista-resultados').hide(); return; }
             $.getJSON('acciones/buscar_producto.php', { term: term }, function(res) {
                 if(res.status == 'success') {
                     if(res.data.length === 1 && res.data[0].codigo_barras == term) seleccionarProducto(res.data[0]);
@@ -673,6 +943,20 @@ try {
             $('#usar-puntos').prop('checked', false); 
             modalCliente.hide();
             calc();
+
+            // --- INTELIGENCIA DE FOCO POST-SELECCIÓN ---
+            setTimeout(() => {
+                if(!$('#info-puntos').hasClass('d-none')) {
+                    // Si tiene puntos, el foco va al interruptor de puntos
+                    $('#usar-puntos').focus();
+                } else if(!$('#info-saldo').hasClass('d-none')) {
+                    // Si tiene saldo a favor, va al interruptor de saldo
+                    $('#usar-saldo').focus();
+                } else {
+                    // Si no tiene nada de eso, va directo al campo de Cupón
+                    $('#input-cupon').focus();
+                }
+            }, 300); // Pequeña espera para que el modal termine de cerrar
         };
 
         function render() {
@@ -986,25 +1270,54 @@ function abrirEscanerTransferencia(esSuma = false) {
                     if (result.isConfirmed) {
                         Swal.fire({ title: 'Analizando captura(s)...', html: 'Extrayendo datos con IA<br><i>Esto puede demorar unos segundos</i>', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
                         
+                        let totalEsperado = parseFloat($('#total-venta').attr('data-total-final')) || 0;
+
                         $.ajax({
                             url: 'acciones/procesar_ocr_transferencia.php',
                             type: 'POST',
-                            data: { imagenes_base64: fotosEscaner }, 
+                            dataType: 'json',
+                            data: { imagenes_base64: fotosEscaner, monto_esperado: totalEsperado }, 
                             timeout: 25000, 
                             success: function(res) {
-                                if (res.trim() === "OK") {
-                                    Swal.fire('¡Listo!', 'Transferencia registrada.', 'success').then(() => {
-                                        ejecutarVentaFinalEnBD();
+                                if (res.status === 'success' || res.status === 'warning') {
+                                    let titulo = res.status === 'success' ? '¡Validación OK!' : '⚠️ ALERTA DE MONTO';
+                                    let msjHtml = res.status === 'success' 
+                                        ? `La IA detectó el pago por <b>$${res.monto_leido}</b>.<br><br>¿El dinero ya impactó en tu cuenta bancaria?` 
+                                        : `Esperado: <b>$${res.monto_esperado}</b><br>Leído por IA: <b class="text-danger">$${res.monto_leido}</b><br><br>¿Deseás aprobar bajo tu responsabilidad?`;
+
+                                    Swal.fire({
+                                        title: titulo,
+                                        html: msjHtml,
+                                        icon: res.status === 'success' ? 'success' : 'warning',
+                                        showDenyButton: true,
+                                        showCancelButton: true,
+                                        allowOutsideClick: false,
+                                        confirmButtonText: '<i class="bi bi-check-circle"></i> Sí, ya impactó',
+                                        denyButtonText: '<i class="bi bi-clock-history"></i> Pendiente',
+                                        cancelButtonText: 'Rechazar y Borrar',
+                                        confirmButtonColor: '#198754',
+                                        denyButtonColor: '#ffc107',
+                                        cancelButtonColor: '#dc3545'
+                                    }).then((conf) => {
+                                        if (conf.isConfirmed) {
+                                            ejecutarVentaFinalEnBD('completada', res.id_transferencia);
+                                        } else if (conf.isDenied) {
+                        // Enviamos a confirmar la venta sin interrumpir el proceso
+                        ejecutarVentaFinalEnBD('pendiente_transferencia', res.id_transferencia);
+                    } else {
+                                            $.post('ver_transferencias_ia.php', { solicitud_borrar: 1, ids_a_borrar: JSON.stringify([res.id_transferencia]) });
+                                            Swal.fire('Cancelada', 'Venta cancelada y foto eliminada.', 'info');
+                                        }
                                     });
                                 } else {
-                                    Swal.fire('Error de IA', res || 'Respuesta vacía del servidor', 'error');
+                                    Swal.fire('Error de IA', res.msg || 'No se detectó una transferencia válida.', 'error');
                                 }
                             },
                             error: function(jqXHR, textStatus) {
                                 if (textStatus === 'timeout') {
-                                    Swal.fire('Aviso', 'La IA tardó demasiado en responder. Volvé a intentarlo.', 'warning');
+                                    Swal.fire('Aviso', 'La IA tardó demasiado. Volvé a intentarlo.', 'warning');
                                 } else {
-                                    Swal.fire('Error', 'Se cortó la conexión con el servidor. Intentá de nuevo.', 'error');
+                                    Swal.fire('Error', 'Se cortó la conexión con el servidor.', 'error');
                                 }
                             }
                         });
@@ -1020,53 +1333,201 @@ function abrirEscanerTransferencia(esSuma = false) {
         }
     };
     input.click();
-
 }
-        function ejecutarVentaFinalEnBD() {
-            let total = parseFloat($('#total-venta').attr('data-total-final'));
+        window.ejecutarVentaFinalEnBD = function(estadoTransf = 'completada', idTransf = null) {
+            let total = parseFloat($('#total-venta').attr('data-total-final')) || 0;
             let metodo = $('#metodo-pago').val();
-            let idCliente = $('#id-cliente').val();
-            let cupon = $('#input-cupon').val();
-            let descManual = $('#input-desc-manual').val();
-            let saldoUsado = ($('#usar-saldo').is(':checked')) ? $('#val-saldo').val() : 0;
-            let puntosUsados = $('#val-puntos-usados').val(); 
-            
+
+            if (carrito.length === 0) {
+                return Swal.fire('Atención', 'El carrito está vacío. Agregá productos para cobrar.', 'warning');
+            }
+
+            // Confirmación obligatoria para evitar cobros accidentales
+            if (metodo === 'Efectivo') {
+                let paga = parseFloat($('#paga-con').val()) || 0;
+                let vuelto = (paga > total) ? (paga - total) : 0;
+                let textoVuelto = (paga > 0) ? `<br><br><div class="p-2 bg-light border rounded text-dark">Abona con: <b>$${paga.toFixed(2)}</b><br><h4 class="text-success mb-0 mt-1 fw-bold">Vuelto: $${vuelto.toFixed(2)}</h4></div>` : '';
+
+                Swal.fire({
+                    title: '¿Confirmar Cobro?',
+                    html: `Total a cobrar: <b class="fs-4">$${total.toFixed(2)}</b> en <b>EFECTIVO</b>${textoVuelto}`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#198754',
+                    cancelButtonColor: '#dc3545',
+                    confirmButtonText: '<i class="bi bi-check-circle"></i> SÍ, COBRAR AHORA',
+                    cancelButtonText: 'Cancelar'
+                }).then((result) => {
+                    if (result.isConfirmed) procesarVentaBackend(estadoTransf, idTransf);
+                });
+            } else {
+                Swal.fire({
+                    title: '¿Confirmar Venta?',
+                    html: `Monto total: <b class="fs-4">$${total.toFixed(2)}</b><br>Medio de pago: <b>${metodo}</b>`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#198754',
+                    cancelButtonColor: '#dc3545',
+                    confirmButtonText: '<i class="bi bi-check-circle"></i> SÍ, COBRAR AHORA',
+                    cancelButtonText: 'Cancelar'
+                }).then((result) => {
+                    if (result.isConfirmed) procesarVentaBackend(estadoTransf, idTransf);
+                });
+            }
+        };
+
+        // El motor que envía los datos a la Base de Datos (Blindado contra cuelgues)
+        function procesarVentaBackend(estadoTransf, idTransf) {
+            let total = parseFloat($('#total-venta').attr('data-total-final')) || 0;
+            let metodo = $('#metodo-pago').val();
+            let idCliente = $('#id-cliente').val() || 1;
+            let cupon = $('#input-cupon').val() || '';
+            let descManual = $('#input-desc-manual').val() || 0;
+            let saldoUsado = ($('#usar-saldo').is(':checked')) ? ($('#val-saldo').val() || 0) : 0;
+            let puntosUsados = $('#val-puntos-usados').val() || 0;
+
             let pagosMixtos = null;
             if(metodo === 'Mixto') {
                 if(!pagosMixtosConfirmados) return Swal.fire('Atención', 'Debes confirmar el pago mixto.', 'warning');
                 pagosMixtos = JSON.stringify(pagosMixtosConfirmados);
             }
 
-            let pagoDeuda = $('#pago-deuda-calculado').val();
+            let pagoDeuda = $('#pago-deuda-calculado').val() || 0;
             let boton = $('#btn-finalizar');
-            
+
             boton.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Procesando...');
 
-            $.post('acciones/procesar_venta.php', {
+            let payload = {
                 items: carrito, total: total, metodo_pago: metodo, id_cliente: idCliente,
                 cupon_codigo: cupon, desc_manual_monto: descManual, saldo_favor_usado: saldoUsado,
-                pago_deuda: pagoDeuda, pagos_mixtos: pagosMixtos, descuento_puntos_monto: puntosUsados 
-                }, function(res) {
-                    boton.prop('disabled', false).html('<i class="bi bi-check-lg"></i> CONFIRMAR VENTA');
-                    if(res.status === 'success') {
-                        let idVenta = res.id_venta;
-                        let idClienteActual = $('#id-cliente').val(); 
-                        let botonesHtml = `
-                            <div class="d-grid gap-2">
-                                <button onclick="window.open('ticket.php?id=${idVenta}', 'pop-up', 'width=300,height=600')" class="btn btn-dark btn-lg py-3">
-                                    <i class="bi bi-printer"></i> IMPRIMIR TICKET
-                                </button>`;
-                        if(idClienteActual && idClienteActual != "1") { 
-                            botonesHtml += `<button onclick="enviarTicketEmail(${idVenta})" class="btn btn-outline-primary py-2"><i class="bi bi-envelope"></i> Enviar por Correo</button>`;
-                        }
-                        botonesHtml += `<hr><button onclick="location.reload()" class="btn btn-success btn-lg py-3"><i class="bi bi-plus-circle"></i> NUEVA VENTA</button></div>`;
+                pago_deuda: pagoDeuda, pagos_mixtos: pagosMixtos, descuento_puntos_monto: puntosUsados,
+                estado_venta: estadoTransf, id_transferencia: idTransf
+            };
 
-                        Swal.fire({ icon: 'success', title: '<span style="color:#198754">¡VENTA EXITOSA!</span>', html: botonesHtml, showConfirmButton: false, allowOutsideClick: false });
-                    } else {
-                        Swal.fire('Error', res.msg, 'error');
+            $.post('acciones/procesar_venta.php', payload, function(res) {
+                boton.prop('disabled', false).html('<i class="bi bi-check-lg"></i> CONFIRMAR VENTA');
+
+                if(res && res.status === 'success') {
+                    let idVenta = res.id_venta;
+                    let idClienteActual = $('#id-cliente').val();
+
+                    // TU DISEÑO ORIGINAL RESTAURADO (Con mejoras internas)
+                    let botonesHtml = `
+                        <div class="d-grid gap-2">
+                            <button onclick="imprimirTicketOculto(${idVenta})" class="btn btn-dark btn-lg py-3 shadow-sm">
+                                <i class="bi bi-printer"></i> IMPRIMIR TICKET
+                            </button>`;
+                    if(idClienteActual && idClienteActual != "1") {
+                        botonesHtml += `<button id="btnMail_${idVenta}" onclick="enviarTicketEmailDirecto(${idVenta})" class="btn btn-outline-primary py-2 shadow-sm"><i class="bi bi-envelope"></i> Enviar por Correo</button>`;
                     }
-                }, 'json');
+                    botonesHtml += `<hr class="my-2"><button onclick="limpiarPantallaVenta()" class="btn btn-success btn-lg py-3 shadow-sm"><i class="bi bi-plus-circle"></i> NUEVA VENTA</button></div>`;
+
+                    let tituloFinal = (estadoTransf === 'pendiente_transferencia') ? '<span style="color:#ff9800">VENTA GUARDADA (PENDIENTE)</span>' : '<span style="color:#198754">¡VENTA EXITOSA!</span>';
+                    let iconoFinal = (estadoTransf === 'pendiente_transferencia') ? 'info' : 'success';
+
+                    Swal.fire({ icon: iconoFinal, title: tituloFinal, html: botonesHtml, showConfirmButton: false, allowOutsideClick: false });
+                } else {
+                    Swal.fire('Error', res?.msg || 'Error del servidor.', 'error');
+                }
+            }, 'json').fail(function(jqXHR, textStatus, errorThrown) {
+                boton.prop('disabled', false).html('<i class="bi bi-check-lg"></i> CONFIRMAR VENTA');
+                Swal.fire('Error', 'Fallo de conexión o timeout del servidor.', 'error');
+                console.error("Error AJAX:", textStatus, errorThrown, jqXHR.responseText);
+            });
         }
+
+        // --- MAGIA: IMPRIMIR EN TICKETERA SIN ABRIR PESTAÑAS NUEVAS ---
+        window.imprimirTicketOculto = function(id) {
+            let iframe = document.getElementById('iframe-impresion');
+            if (!iframe) {
+                iframe = document.createElement('iframe');
+                iframe.id = 'iframe-impresion';
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+            }
+            iframe.src = 'ticket.php?id=' + id;
+        };
+
+        // --- MAGIA: ENVIAR CORREO DESDE EL MISMO BOTÓN (Se pone verde al enviar) ---
+        window.enviarTicketEmailDirecto = function(idVenta) {
+            let btn = $('#btnMail_' + idVenta);
+            let txtOriginal = btn.html();
+            btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Enviando...');
+            $.post('acciones/enviar_ticket_email.php', { id: idVenta }, function(res) {
+                if(res && res.status === 'success') {
+                    btn.removeClass('btn-outline-primary').addClass('btn-success text-white').html('<i class="bi bi-check-circle"></i> Correo Enviado');
+                } else {
+                    btn.prop('disabled', false).html(txtOriginal);
+                    Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 3000}).fire({icon: 'error', title: res?.msg || 'Error'});
+                }
+            }, 'json').fail(function() {
+                btn.prop('disabled', false).html(txtOriginal);
+                Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 3000}).fire({icon: 'error', title: 'Error de red'});
+            });
+        };
+
+        // --- MAGIA: LIMPIEZA EXTREMADAMENTE SEGURA PARA NO PERDER MODO CAJA ---
+        window.limpiarPantallaVenta = function() {
+            Swal.close();
+            vaciarCarrito();
+            
+            // Reseteo de Cliente
+            $('#id-cliente').val(1);
+            $('#lbl-nombre-cliente').text('Consumidor Final');
+            $('#val-deuda').val(0);
+            $('#info-deuda').addClass('d-none');
+            $('#info-saldo').addClass('d-none');
+            $('#box-puntos-cliente').hide();
+            $('#info-puntos').addClass('d-none');
+            $('#val-puntos').val(0);
+            $('#usar-puntos').prop('checked', false);
+            
+            // Limpieza TOTAL de Cupones, Descuentos y Medio de Pago
+            $('#input-cupon').val('');
+            $('#input-desc-manual').val('');
+            $('#metodo-pago').val('Efectivo').trigger('change');
+            if(window.pagosMixtosActuales) window.pagosMixtosActuales = [];
+            if(window.puntosUsadosMonto) window.puntosUsadosMonto = 0;
+            
+            $('#btn-finalizar').prop('disabled', false).html('<i class="bi bi-check-lg"></i> CONFIRMAR VENTA');
+            setTimeout(() => $('#buscar-producto').focus(), 200);
+        };
+
+        // --- FUNCIÓN GLOBAL PARA CANCELAR CON AVISO ---
+        window.cancelarVentaTotal = function() {
+            if(carrito.length === 0 && $('#id-cliente').val() == 1 && $('#input-cupon').val() === '' && $('#input-desc-manual').val() === '') {
+                Swal.fire('Atención', 'La pantalla ya está limpia.', 'info');
+                return;
+            }
+            
+            Swal.fire({
+                title: '¿Cancelar Venta?',
+                text: 'Se borrarán los productos, descuentos y el cliente seleccionado.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-trash"></i> Sí, limpiar todo',
+                confirmButtonColor: '#dc3545',
+                cancelButtonText: 'Volver'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    limpiarPantallaVenta();
+                    Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 1500}).fire({icon: 'success', title: 'Pantalla reseteada a Cero'});
+                }
+            });
+        };
+
+        // --- INTERCEPTAR EL BOTÓN CANCELAR DEL MOUSE ---
+        $(document).ready(function() {
+            setTimeout(() => {
+                // Si el cajero hace clic en el botón rojo de cancelar, ejecutamos la limpieza extrema
+                $('button[onclick="vaciarCarrito()"]').removeAttr('onclick').off('click').on('click', function(e) {
+                    e.preventDefault();
+                    cancelarVentaTotal();
+                });
+            }, 500);
+        });
+
+        
         
         function suspenderVentaActual() {
             if (carrito.length === 0) return Swal.fire('Atención', 'No hay productos para suspender.', 'warning');
@@ -1107,7 +1568,29 @@ function abrirEscanerTransferencia(esSuma = false) {
         function abrirModalSuspendidas() {
             $.get('acciones/suspender_listar.php', function(html) {
                 $('#listaSuspendidasBody').html(html);
+                
+                // Inyectamos navegación por teclado para que el Tab no se salte el botón principal
+                $('#listaSuspendidasBody').find('[onclick^="recuperarVentaId"]').each(function() {
+                    $(this).attr('tabindex', '0'); // Lo hace seleccionable con TAB
+                    $(this).css('outline', 'none'); 
+                    
+                    // Efecto visual al hacer foco con el teclado
+                    $(this).on('focus', function() { $(this).css('box-shadow', 'inset 0 0 0 3px rgba(13, 110, 253, 0.5)'); });
+                    $(this).on('blur', function() { $(this).css('box-shadow', 'none'); });
+                    
+                    // Si aprieta Enter estando posicionado, hace el clic de recuperar
+                    $(this).on('keydown', function(e) {
+                        if (e.key === 'Enter') { e.preventDefault(); $(this).click(); }
+                    });
+                });
+
                 $('#modalSuspendidas').modal('show');
+                
+                // Hacemos foco automático en la primera venta de la lista al abrir
+                setTimeout(() => {
+                    let primero = $('#listaSuspendidasBody').find('[onclick^="recuperarVentaId"]').first();
+                    if(primero.length) primero.focus();
+                }, 500);
             });
         }
 
@@ -1185,6 +1668,9 @@ function abrirEscanerTransferencia(esSuma = false) {
                 confirmButtonText: '<i class="bi bi-save"></i> Guardar y Seleccionar',
                 cancelButtonText: 'Cancelar',
                 confirmButtonColor: '#198754',
+                didOpen: () => {
+                    setTimeout(() => document.getElementById('sa2-rapido-nombre').focus(), 100);
+                },
                 preConfirm: () => {
                     const nombre = document.getElementById('sa2-rapido-nombre').value.trim();
                     const email = document.getElementById('sa2-rapido-email').value.trim();

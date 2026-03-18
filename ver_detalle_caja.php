@@ -28,17 +28,21 @@ $caja = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$caja) { die("Error: La sesión de caja no existe."); }
 
-// 3. CÁLCULOS DE TOTALES (Esto ya te funcionaba bien)
-$stmtR = $conexion->prepare("SELECT SUM(total) FROM ventas WHERE id_caja_sesion = ? AND estado='completada' AND codigo_ticket LIKE 'RIFA-%'");
-$stmtR->execute([$id_sesion]);
+// Detectar rubro actual para filtrar
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
+// 3. CÁLCULOS DE TOTALES (Aislados por rubro)
+$stmtR = $conexion->prepare("SELECT SUM(total) FROM ventas WHERE id_caja_sesion = ? AND estado='completada' AND codigo_ticket LIKE 'RIFA-%' AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$stmtR->execute([$id_sesion, $rubro_actual]);
 $total_rifas = floatval($stmtR->fetchColumn() ?: 0);
 
-$stmtV = $conexion->prepare("SELECT SUM(total) FROM ventas WHERE id_caja_sesion = ? AND estado='completada' AND (codigo_ticket NOT LIKE 'RIFA-%' OR codigo_ticket IS NULL)");
-$stmtV->execute([$id_sesion]);
+$stmtV = $conexion->prepare("SELECT SUM(total) FROM ventas WHERE id_caja_sesion = ? AND estado='completada' AND (codigo_ticket NOT LIKE 'RIFA-%' OR codigo_ticket IS NULL) AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$stmtV->execute([$id_sesion, $rubro_actual]);
 $total_ventas = floatval($stmtV->fetchColumn() ?: 0);
 
-$stmtG = $conexion->prepare("SELECT SUM(monto) FROM gastos WHERE id_caja_sesion = ?");
-$stmtG->execute([$id_sesion]);
+$stmtG = $conexion->prepare("SELECT SUM(monto) FROM gastos WHERE id_caja_sesion = ? AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$stmtG->execute([$id_sesion, $rubro_actual]);
 $total_gastos = floatval($stmtG->fetchColumn() ?: 0);
 
 // 4. CONSTRUCCIÓN DE LA TABLA DE MOVIMIENTOS (Sin UNION SQL para evitar errores de servidor)
@@ -55,8 +59,8 @@ $lista_movimientos[] = [
 ];
 
 // B. Obtener Ventas y sus productos (Lógica de Auditoría)
-$stmtVentas = $conexion->prepare("SELECT id, fecha, total, metodo_pago, codigo_ticket FROM ventas WHERE id_caja_sesion = ? AND estado='completada'");
-$stmtVentas->execute([$id_sesion]);
+$stmtVentas = $conexion->prepare("SELECT id, fecha, total, metodo_pago, codigo_ticket FROM ventas WHERE id_caja_sesion = ? AND estado='completada' AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$stmtVentas->execute([$id_sesion, $rubro_actual]);
 $ventas_db = $stmtVentas->fetchAll(PDO::FETCH_ASSOC);
 
 foreach($ventas_db as $v) {
@@ -78,8 +82,8 @@ foreach($ventas_db as $v) {
 }
 
 // C. Obtener Gastos
-$stmtGastos = $conexion->prepare("SELECT id, fecha, monto, categoria, descripcion FROM gastos WHERE id_caja_sesion = ?");
-$stmtGastos->execute([$id_sesion]);
+$stmtGastos = $conexion->prepare("SELECT id, fecha, monto, categoria, descripcion FROM gastos WHERE id_caja_sesion = ? AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$stmtGastos->execute([$id_sesion, $rubro_actual]);
 $gastos_db = $stmtGastos->fetchAll(PDO::FETCH_ASSOC);
 
 foreach($gastos_db as $g) {

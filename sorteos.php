@@ -16,6 +16,9 @@ try {
     $conexion->query("UPDATE sorteos SET id_usuario = 1 WHERE id_usuario IS NULL");
 } catch (Exception $e) { /* La columna ya existe, continuamos. */ }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // 1. PROCESAR CREACIÓN DE SORTEO (Estado inicial: pendiente)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
     $titulo = $_POST['titulo'];
@@ -24,8 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
     $fecha = $_POST['fecha'];
     $descripcion = $_POST['descripcion'] ?? '';
     
-    $stmt = $conexion->prepare("INSERT INTO sorteos (titulo, descripcion, precio_ticket, cantidad_tickets, fecha_sorteo, estado, id_usuario) VALUES (?, ?, ?, ?, ?, 'pendiente', ?)");
-    $stmt->execute([$titulo, $descripcion, $precio, $cant, $fecha, $_SESSION['usuario_id']]);
+    $stmt = $conexion->prepare("INSERT INTO sorteos (titulo, descripcion, precio_ticket, cantidad_tickets, fecha_sorteo, estado, id_usuario, tipo_negocio) VALUES (?, ?, ?, ?, ?, 'pendiente', ?, ?)");
+    $stmt->execute([$titulo, $descripcion, $precio, $cant, $fecha, $_SESSION['usuario_id'], $rubro_actual]);
     $idSorteo = $conexion->lastInsertId();
     
     if(isset($_POST['premios_simulados']) && !empty($_POST['premios_simulados'])) {
@@ -43,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
         }
     }
     $d_aud = "Sorteo Creado: " . $titulo . " | Precio Tkt: $" . $precio; 
-    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'SORTEO_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
+    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'SORTEO_NUEVO', ?, NOW(), ?)")->execute([$_SESSION['usuario_id'], $d_aud, $rubro_actual]);
     header("Location: detalle_sorteo.php?id=$idSorteo&msg=creado"); exit;
 }
 
@@ -53,7 +56,7 @@ $hasta = $_GET['hasta'] ?? date('Y-12-31');
 $buscar = trim($_GET['buscar'] ?? '');
 $f_usu = $_GET['id_usuario'] ?? '';
 
-$cond = ["DATE(s.fecha_sorteo) >= ?", "DATE(s.fecha_sorteo) <= ?"];
+$cond = ["DATE(s.fecha_sorteo) >= ?", "DATE(s.fecha_sorteo) <= ?", "(s.tipo_negocio = '$rubro_actual' OR s.tipo_negocio IS NULL)"];
 $params = [$desde, $hasta];
 
 if (!empty($buscar)) {
@@ -73,7 +76,7 @@ $sorteos = $stmtS->fetchAll(PDO::FETCH_ASSOC) ?: [];
 // Productos para el simulador (Traemos Costo, Público y Código de Barras)
 $sqlProds = "SELECT p.id, p.descripcion, p.tipo, p.precio_costo, p.precio_venta, p.precio_oferta, p.codigo_barras,
             (SELECT COALESCE(SUM(prod_hijo.precio_costo * ci.cantidad), 0) FROM combo_items ci JOIN combos c ON c.id = ci.id_combo JOIN productos prod_hijo ON ci.id_producto = prod_hijo.id WHERE c.codigo_barras = p.codigo_barras) as costo_combo_calculado
-            FROM productos p WHERE p.activo = 1 ORDER BY p.descripcion ASC";
+            FROM productos p WHERE p.activo = 1 AND (p.tipo_negocio = '$rubro_actual' OR p.tipo_negocio IS NULL) ORDER BY p.descripcion ASC";
 $rawProds = $conexion->query($sqlProds)->fetchAll(PDO::FETCH_ASSOC);
 $prods_simulador = [];
 foreach($rawProds as $p) {
@@ -85,8 +88,8 @@ foreach($rawProds as $p) {
 // KPIs PARA WIDGETS
 $total_sorteos = count($sorteos);
 $activas = 0; foreach($sorteos as $s) { if($s['estado'] == 'activo') $activas++; }
-$total_vendidos = $conexion->query("SELECT COUNT(*) FROM sorteo_tickets")->fetchColumn() ?: 0;
-$historial_ganadores = $conexion->query("SELECT id, titulo, ganadores_json FROM sorteos WHERE estado = 'finalizado' ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+$total_vendidos = $conexion->query("SELECT COUNT(*) FROM sorteo_tickets WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchColumn() ?: 0;
+$historial_ganadores = $conexion->query("SELECT id, titulo, ganadores_json FROM sorteos WHERE estado = 'finalizado' AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
 $color_sistema = '#102A57';
 try { $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1"); if ($resColor) { $dataC = $resColor->fetch(PDO::FETCH_ASSOC); if (isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav']; } } catch (Exception $e) { }
@@ -114,12 +117,29 @@ include 'includes/componente_banner.php';
 
 <div class="container-fluid mt-n4 pb-5 px-2 px-md-4" style="position: relative; z-index: 20;">
     
+    <style>
+        .filter-bar.sticky-desktop { position: sticky; top: 65px; z-index: 1000; background: #fff; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        @media (max-width: 768px) { 
+            .filter-bar.sticky-desktop { top: 10px; position: relative; padding: 10px; } 
+            .filter-content-wrapper { display: none; flex-direction: column; gap: 10px; padding-top: 15px; }
+            .filter-content-wrapper.show { display: flex; }
+            .search-group, .filter-select { width: 100% !important; }
+        }
+        @media (min-width: 769px) {
+            .filter-content-wrapper { display: flex !important; width: 100%; gap: 10px; align-items: center; }
+            .btn-toggle-filters { display: none; }
+        }
+    </style>
+
+    <?php $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC); ?>
+
     <div class="card border-0 shadow-sm rounded-4 mb-3 bg-warning text-dark overflow-hidden" style="border-left: 5px solid #ff9800 !important;">
         <div class="card-body p-2 p-md-3">
             <form method="GET" class="row g-2 align-items-center mb-0">
                 <input type="hidden" name="desde" value="<?php echo htmlspecialchars($desde); ?>">
                 <input type="hidden" name="hasta" value="<?php echo htmlspecialchars($hasta); ?>">
                 <input type="hidden" name="id_usuario" value="<?php echo htmlspecialchars($f_usu); ?>">
+                
                 <div class="col-md-8 col-12 text-center text-md-start">
                     <h6 class="fw-bold mb-1 text-uppercase"><i class="bi bi-search me-2"></i>Buscador Rápido</h6>
                     <p class="small mb-0 opacity-75 d-none d-md-block">Ingresá el nombre de la campaña o rifa para encontrarla.</p>
@@ -127,7 +147,7 @@ include 'includes/componente_banner.php';
                 <div class="col-md-4 col-12 text-end">
                     <div class="input-group input-group-sm">
                         <input type="text" name="buscar" class="form-control border-0 fw-bold shadow-none" placeholder="Buscar sorteo..." value="<?php echo htmlspecialchars($buscar); ?>">
-                        <button class="btn btn-dark px-3 border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
+                        <button class="btn btn-dark px-3 shadow-none border-0" type="submit"><i class="bi bi-arrow-right-circle-fill"></i></button>
                     </div>
                 </div>
             </form>
@@ -136,8 +156,9 @@ include 'includes/componente_banner.php';
 
     <div class="card border-0 shadow-sm rounded-4 mb-4">
         <div class="card-body p-2 p-md-3">
-            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100" id="wrapperFiltros">
                 <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
+                
                 <div class="flex-grow-1" style="min-width: 120px;">
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Desde</label>
                     <input type="date" name="desde" class="form-control form-control-sm border-light-subtle fw-bold" value="<?php echo $desde; ?>">
@@ -150,9 +171,7 @@ include 'includes/componente_banner.php';
                     <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Responsable</label>
                     <select name="id_usuario" class="form-select form-select-sm border-light-subtle fw-bold">
                         <option value="">Todos</option>
-                        <?php 
-                        $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
-                        foreach($usuarios_lista as $usu): ?>
+                        <?php foreach($usuarios_lista as $usu): ?>
                             <option value="<?php echo $usu['id']; ?>" <?php echo ($f_usu == $usu['id']) ? 'selected' : ''; ?>><?php echo strtoupper($usu['usuario']); ?></option>
                         <?php endforeach; ?>
                     </select>
@@ -183,35 +202,104 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
-    <div class="row g-4">
+    <div class="row g-4 pb-5" id="gridProductos">
         <?php if(count($sorteos) === 0): ?>
-            <div class="col-12 text-center py-5 text-muted">No hay sorteos creados en este filtro.</div>
+            <div class="col-12 text-center py-5 text-muted">
+                <i class="bi bi-ticket-perforated opacity-25" style="font-size: 5rem;"></i>
+                <h5 class="mt-3">No hay sorteos creados con estos filtros.</h5>
+            </div>
         <?php endif; ?>
         
         <?php foreach($sorteos as $s): 
-            $badge = ($s['estado'] == 'activo') ? 'bg-success' : (($s['estado'] == 'pendiente') ? 'bg-warning text-dark' : 'bg-secondary');
             $vendidos = $conexion->query("SELECT COUNT(*) FROM sorteo_tickets WHERE id_sorteo = {$s['id']}")->fetchColumn();
             $progreso = ($s['cantidad_tickets'] > 0) ? ($vendidos / $s['cantidad_tickets']) * 100 : 0;
+            
+            if($s['estado'] == 'activo') { $color_borde = '#198754'; $badge = 'bg-success'; } 
+            elseif($s['estado'] == 'pendiente') { $color_borde = '#ffc107'; $badge = 'bg-warning text-dark'; } 
+            else { $color_borde = '#6c757d'; $badge = 'bg-secondary'; }
         ?>
-        <div class="col-md-4">
-            <div class="card card-sorteo h-100 shadow-sm rounded-4 border-0">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between mb-3">
-                        <span class="badge <?php echo $badge; ?> rounded-pill"><?php echo strtoupper($s['estado']); ?></span>
-                        <small class="text-muted"><i class="bi bi-calendar-event"></i> <?php echo date('d/m/Y', strtotime($s['fecha_sorteo'])); ?></small>
+        <div class="col-12 col-md-6 col-xl-4 item-grid">
+            <div class="card card-sorteo h-100 shadow-sm rounded-4 border-0" style="border-top: 5px solid <?php echo $color_borde; ?> !important; overflow: hidden; background: #fff;">
+                <div class="card-body p-4">
+                    <div class="d-flex justify-content-between mb-3 align-items-center">
+                        <span class="badge <?php echo $badge; ?> rounded-pill px-3 py-2 fw-bold shadow-sm"><?php echo strtoupper($s['estado']); ?></span>
+                        <small class="text-muted fw-bold"><i class="bi bi-calendar-event"></i> <?php echo date('d/m/y', strtotime($s['fecha_sorteo'])); ?></small>
                     </div>
-                    <h5 class="fw-bold text-dark mb-1"><?php echo htmlspecialchars($s['titulo']); ?></h5>
-                    <div class="small text-muted mb-2"><i class="bi bi-person-fill"></i> Op: <strong><?php echo $s['creador'] ? strtoupper($s['creador']) : 'S/D'; ?></strong></div>
-                    <h3 class="text-primary fw-bold">$<?php echo number_format($s['precio_ticket'], 0, ',', '.'); ?> <small class="fs-6 text-muted">/ticket</small></h3>
-                    <div class="mt-3">
-                        <div class="d-flex justify-content-between small text-muted mb-1"><span>Vendidos: <?php echo $vendidos; ?></span><span>Total: <?php echo $s['cantidad_tickets']; ?></span></div>
-                        <div class="progress" style="height: 8px;"><div class="progress-bar bg-primary" role="progressbar" style="width: <?php echo $progreso; ?>%"></div></div>
+                    <h5 class="fw-bold text-dark mb-1 text-truncate" style="font-family: 'Oswald', sans-serif; font-size: 1.3rem;"><?php echo htmlspecialchars($s['titulo']); ?></h5>
+                    <div class="small text-muted mb-3"><i class="bi bi-person-fill"></i> Op: <strong><?php echo $s['creador'] ? strtoupper($s['creador']) : 'S/D'; ?></strong></div>
+                    
+                    <div class="d-flex align-items-end mb-3">
+                        <h2 class="text-primary fw-bold mb-0 me-2">$<?php echo number_format($s['precio_ticket'], 0, ',', '.'); ?></h2>
+                        <span class="text-muted fw-bold pb-1">/ TICKET</span>
+                    </div>
+                    
+                    <div class="mt-4 p-3 bg-light rounded-3">
+                        <div class="d-flex justify-content-between small fw-bold mb-2">
+                            <span class="text-dark">Vendidos: <?php echo $vendidos; ?></span>
+                            <span class="text-muted">Total: <?php echo $s['cantidad_tickets']; ?></span>
+                        </div>
+                        <div class="progress shadow-sm" style="height: 10px; border-radius: 5px;">
+                            <div class="progress-bar" role="progressbar" style="width: <?php echo $progreso; ?>%; background-color: <?php echo $color_borde; ?>"></div>
+                        </div>
                     </div>
                 </div>
-                <div class="card-footer bg-white border-0 pt-0 pb-3"><a href="detalle_sorteo.php?id=<?php echo $s['id']; ?>" class="btn btn-outline-primary w-100 rounded-pill fw-bold">ADMINISTRAR</a></div>
+                <div class="card-footer bg-white border-top p-3 text-center">
+                    <a href="detalle_sorteo.php?id=<?php echo $s['id']; ?>" class="btn btn-outline-primary w-100 rounded-pill fw-bold shadow-sm"><i class="bi bi-gear-fill me-1"></i> ADMINISTRAR</a>
+                </div>
             </div>
         </div>
         <?php endforeach; ?>
+    </div>
+
+    <div id="vistaListaGenerica" class="d-none mt-2 pb-5">
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 tabla-movil-ajustada">
+                    <thead class="bg-light text-muted small text-uppercase">
+                        <tr>
+                            <th class="ps-4">SORTEO</th>
+                            <th>ESTADO / FECHA</th>
+                            <th class="text-center d-none d-md-table-cell">PROGRESO</th>
+                            <th class="text-end pe-4">ACCIÓN</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if(count($sorteos) === 0): ?>
+                            <tr><td colspan="4" class="text-center py-5 text-muted">No hay sorteos creados en este filtro.</td></tr>
+                        <?php else: ?>
+                            <?php foreach($sorteos as $s): 
+                                $vendidos = $conexion->query("SELECT COUNT(*) FROM sorteo_tickets WHERE id_sorteo = {$s['id']}")->fetchColumn();
+                                $progreso = ($s['cantidad_tickets'] > 0) ? ($vendidos / $s['cantidad_tickets']) * 100 : 0;
+                                
+                                if($s['estado'] == 'activo') { $badge = 'bg-success'; $color_bar = 'bg-success'; } 
+                                elseif($s['estado'] == 'pendiente') { $badge = 'bg-warning text-dark'; $color_bar = 'bg-warning'; } 
+                                else { $badge = 'bg-secondary'; $color_bar = 'bg-secondary'; }
+                            ?>
+                            <tr onclick="window.location.href='detalle_sorteo.php?id=<?php echo $s['id']; ?>'" style="cursor: pointer;">
+                                <td class="ps-4 py-3">
+                                    <div class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($s['titulo']); ?></div>
+                                    <div class="text-primary fw-bold mt-1">$<?php echo number_format($s['precio_ticket'], 0, ',', '.'); ?> <span class="small text-muted fw-normal">/ticket</span></div>
+                                </td>
+                                <td>
+                                    <span class="badge <?php echo $badge; ?> fw-bold px-2 py-1 mb-1 shadow-sm"><?php echo strtoupper($s['estado']); ?></span>
+                                    <div class="small text-muted"><i class="bi bi-calendar-event me-1"></i><?php echo date('d/m/y', strtotime($s['fecha_sorteo'])); ?></div>
+                                </td>
+                                <td class="text-center d-none d-md-table-cell" style="width: 25%;">
+                                    <div class="small fw-bold text-dark mb-1"><?php echo $vendidos; ?> / <?php echo $s['cantidad_tickets']; ?></div>
+                                    <div class="progress mx-auto shadow-sm" style="height: 6px; border-radius: 5px; max-width: 150px;">
+                                        <div class="progress-bar <?php echo $color_bar; ?>" style="width: <?php echo $progreso; ?>%"></div>
+                                    </div>
+                                </td>
+                                <td class="text-end pe-4">
+                                    <a href="detalle_sorteo.php?id=<?php echo $s['id']; ?>" class="btn btn-sm btn-outline-primary border-0 rounded-circle shadow-sm" onclick="event.stopPropagation();"><i class="bi bi-gear-fill"></i></a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 

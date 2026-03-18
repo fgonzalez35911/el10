@@ -19,8 +19,11 @@ if (!$es_admin && !in_array('ver_encuestas', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // 2. CONSTRUIR FILTROS
-$where = "WHERE 1=1";
+$where = "WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)";
 $params = [];
 
 // A. Filtro por Fecha
@@ -83,7 +86,9 @@ try {
 } catch (Exception $e) {
     $lista = []; $total = 0; $promedio = 0; $felices = 0;
 }
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 
 // --- BANNER DINÁMICO ESTANDARIZADO ---
 $titulo = "Gestión de Opiniones";

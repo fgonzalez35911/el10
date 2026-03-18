@@ -85,9 +85,20 @@ if (isset($_GET['borrar'])) {
     if (!$es_admin && !in_array('eliminar_usuario', $permisos)) die("Sin permiso.");
     $id_borrar = intval($_GET['borrar']);
     if ($id_borrar == $_SESSION['usuario_id'] || $id_borrar == 1) { header("Location: usuarios.php?err=" . ($id_borrar == 1 ? "admin" : "self")); exit; }
-    $conexion->prepare("DELETE FROM usuarios WHERE id = ?")->execute([$id_borrar]);
-    $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'USUARIO_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], "Usuario ID $id_borrar Eliminado."]);
-    header("Location: usuarios.php?msg=eliminado"); exit;
+    
+    try {
+        $stmt = $conexion->prepare("DELETE FROM usuarios WHERE id = ?");
+        $resultado = $stmt->execute([$id_borrar]);
+        
+        if ($resultado && $stmt->rowCount() > 0) {
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'USUARIO_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], "Usuario ID $id_borrar Eliminado."]);
+            header("Location: usuarios.php?msg=eliminado"); exit;
+        } else {
+            header("Location: usuarios.php?err=relacion"); exit;
+        }
+    } catch (Throwable $e) {
+        header("Location: usuarios.php?err=relacion"); exit;
+    }
 }
 
 // --- 4. FILTROS Y DATOS PARA LA TABLA ---
@@ -158,6 +169,7 @@ include 'includes/componente_banner.php';
                 if($_GET['err'] == 'self') echo "No puedes eliminar tu propia cuenta."; 
                 elseif($_GET['err'] == 'admin') echo "El SuperAdmin no puede ser eliminado.";
                 elseif($_GET['err'] == 'duplicado') echo "Ese nombre de usuario ya existe en el sistema. Elegí otro.";
+                elseif($_GET['err'] == 'relacion') echo "No se puede eliminar el usuario porque tiene historial en el sistema. Te recomendamos editarlo y ponerlo como Inactivo.";
             ?>
         </div>
     <?php endif; ?>
@@ -475,7 +487,6 @@ include 'includes/componente_banner.php';
         let rolAutoridad = datosFirma && datosFirma.nombre_rol ? datosFirma.nombre_rol.toUpperCase() : 'DIRECCIÓN';
 
         let btnWaHTML = `<button class="btn btn-sm btn-success fw-bold shadow-sm" onclick="mandarWA('${u.nombre_completo}', '${u.whatsapp || ''}', '${linkPdfPublico}')"><i class="bi bi-whatsapp"></i> WA</button>`;
-
         // PATRÓN DE ÍCONOS
         let iconosArray = ['🧉', '💊', '🛒', '🇦🇷', '⚽', '🏪', '⭐', '🥟', '🏥', '🥐', '🥩', '🍷', '🎸', '🚌'];
         let posiciones = [
@@ -674,7 +685,7 @@ include 'includes/componente_banner.php';
         let msj = `¡Hola ${nombre}!\nSe ha generado o actualizado tu credencial de acceso para el sistema de *${miLocal.nombre_negocio}*.\n\n📄 Ver credencial digital:\n${link}`;
         window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msj)}`, '_blank');
     }
-
+    
     // --- EMAIL QUE ADJUNTA EL PDF CLONADO ---
     
 
