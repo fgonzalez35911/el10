@@ -13,11 +13,14 @@ if (!$es_admin && !in_array('ver_premios', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 $mensaje = '';
 
 // 1. CARGAR PRODUCTOS Y COMBOS PARA EL SELECTOR (Original)
-$prods_db = $conexion->query("SELECT id, descripcion FROM productos WHERE activo=1 AND tipo != 'combo' ORDER BY descripcion")->fetchAll(PDO::FETCH_ASSOC);
-$combos_db = $conexion->query("SELECT id, nombre FROM combos WHERE activo=1 ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
+$prods_db = $conexion->query("SELECT id, descripcion FROM productos WHERE activo=1 AND tipo != 'combo' AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY descripcion")->fetchAll(PDO::FETCH_ASSOC);
+$combos_db = $conexion->query("SELECT id, nombre FROM combos WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY nombre")->fetchAll(PDO::FETCH_ASSOC);
 
 // AUTOPATCH: Agregar columna id_usuario si no existe
 try { $conexion->query("ALTER TABLE premios ADD COLUMN id_usuario INT(11) NULL DEFAULT 1"); } catch(Exception $e) {}
@@ -44,8 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['agregar'])) {
             }
         }
 
-        $sql = "INSERT INTO premios (nombre, puntos_necesarios, stock, es_cupon, monto_dinero, activo, id_articulo, tipo_articulo, id_usuario) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)";
-        $conexion->prepare($sql)->execute([$nombre, $puntos, $stock, $es_cupon, $monto, $id_articulo, $tipo_articulo, $_SESSION['usuario_id']]);
+        $sql = "INSERT INTO premios (nombre, puntos_necesarios, stock, es_cupon, monto_dinero, activo, id_articulo, tipo_articulo, id_usuario, tipo_negocio) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)";
+        $conexion->prepare($sql)->execute([$nombre, $puntos, $stock, $es_cupon, $monto, $id_articulo, $tipo_articulo, $_SESSION['usuario_id'], $rubro_actual]);
         header("Location: gestionar_premios.php?msg=creado"); exit;
     } catch (Exception $e) { $mensaje = '<div class="alert alert-danger">Error: '.$e->getMessage().'</div>'; }
 }
@@ -79,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
         // Registro inteligente
         if(!empty($cambios)) {
             $detalles = "Premio Editado: " . $old['nombre'] . " | " . implode(" | ", $cambios);
-            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PREMIO_EDITADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles]);
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'PREMIO_EDITADO', ?, NOW(), ?)")->execute([$_SESSION['usuario_id'], $detalles, $rubro_actual]);
         }
         
         header("Location: gestionar_premios.php?msg=edit"); exit;
@@ -102,7 +105,7 @@ if (isset($_GET['borrar'])) {
         $tipo_txt = $premio['es_cupon'] ? "Cupón de $".floatval($premio['monto_dinero']) : "Mercadería";
         $detalles = "Premio Eliminado: " . $premio['nombre'] . " | Costo: " . $premio['puntos_necesarios'] . " pts | Stock: " . $premio['stock'] . " | Tipo: " . $tipo_txt;
         
-        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PREMIO_ELIMINADO', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles]);
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'PREMIO_ELIMINADO', ?, NOW(), ?)")->execute([$_SESSION['usuario_id'], $detalles, $rubro_actual]);
     }
     header("Location: gestionar_premios.php?msg=borrado"); exit;
 }
@@ -112,7 +115,7 @@ $desde_p = $_GET['desde_p'] ?? '0';
 $hasta_p = $_GET['hasta_p'] ?? '999999';
 $buscar = trim($_GET['buscar'] ?? '');
 
-$condiciones = ["p.puntos_necesarios BETWEEN ? AND ?"];
+$condiciones = ["p.puntos_necesarios BETWEEN ? AND ?", "(p.tipo_negocio = '$rubro_actual' OR p.tipo_negocio IS NULL)"];
 $parametros = [$desde_p, $hasta_p];
 
 if (!empty($buscar)) {
@@ -156,7 +159,9 @@ $widgets = [
     ['label' => 'Cupones ($)', 'valor' => count(array_filter($lista, function($i) { return $i['es_cupon']; })), 'icono' => 'bi-ticket-perforated', 'border' => 'border-success', 'icon_bg' => 'bg-success bg-opacity-20']
 ];
 
-include 'includes/layout_header.php';
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 include 'includes/componente_banner.php'; 
 ?>
 

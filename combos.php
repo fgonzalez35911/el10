@@ -27,27 +27,30 @@ function procesarImagenBase64($base64, $url_texto, $actual) {
 
 // --- 2. LÓGICA DE GUARDADO (CREAR/EDITAR/BORRAR) ---
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 if (isset($_POST['crear_combo'])) {
     if (!$es_admin && !in_array('crear_combo', $permisos)) die("Sin permiso para crear.");
     try {
         $conexion->beginTransaction();
         $img = procesarImagenBase64($_POST['imagen_base64'], '', 'default.jpg');
         
-        $stmt = $conexion->prepare("INSERT INTO combos (nombre, precio, codigo_barras, activo, fecha_inicio, fecha_fin, es_ilimitado) VALUES (?, ?, ?, 1, ?, ?, ?)");
+        $stmt = $conexion->prepare("INSERT INTO combos (nombre, precio, codigo_barras, activo, fecha_inicio, fecha_fin, es_ilimitado, tipo_negocio) VALUES (?, ?, ?, 1, ?, ?, ?, ?)");
         $stmt->execute([
             $_POST['nombre'], $_POST['precio'], !empty($_POST['codigo']) ? $_POST['codigo'] : 'COMBO-'.time(), 
             !empty($_POST['fecha_inicio']) ? $_POST['fecha_inicio'] : date('Y-m-d'), 
-            !empty($_POST['fecha_fin']) ? $_POST['fecha_fin'] : date('Y-m-d'), isset($_POST['es_ilimitado']) ? 1 : 0
+            !empty($_POST['fecha_fin']) ? $_POST['fecha_fin'] : date('Y-m-d'), isset($_POST['es_ilimitado']) ? 1 : 0, $rubro_actual
         ]);
         $id_nuevo = $conexion->lastInsertId();
 
-        $sqlP = "INSERT INTO productos (descripcion, precio_venta, precio_oferta, codigo_barras, tipo, id_categoria, stock_actual, activo, es_destacado_web, imagen_url) VALUES (?, ?, ?, ?, 'combo', ?, 1, 1, ?, ?)";
+        $sqlP = "INSERT INTO productos (descripcion, precio_venta, precio_oferta, codigo_barras, tipo, id_categoria, stock_actual, activo, es_destacado_web, imagen_url, tipo_negocio) VALUES (?, ?, ?, ?, 'combo', ?, 1, 1, ?, ?, ?)";
         $conexion->prepare($sqlP)->execute([
             $_POST['nombre'], $_POST['precio'], !empty($_POST['precio_oferta']) ? $_POST['precio_oferta'] : NULL,
             !empty($_POST['codigo']) ? $_POST['codigo'] : 'COMBO-'.time(), $_POST['id_categoria'],
-            isset($_POST['es_destacado']) ? 1 : 0, $img
+            isset($_POST['es_destacado']) ? 1 : 0, $img, $rubro_actual
         ]);
-
+        
         if (isset($_POST['prod_ids'])) {
             $stmtAdd = $conexion->prepare("INSERT INTO combo_items (id_combo, id_producto, cantidad) VALUES (?, ?, ?)");
             foreach ($_POST['prod_ids'] as $idx => $p_id) {
@@ -125,6 +128,30 @@ if (isset($_POST['editar_combo'])) {
     } catch (Exception $e) { $conexion->rollBack(); die($e->getMessage()); }
 }
 
+// --- BORRADO MASIVO AJAX ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['solicitud_borrar_masivo'])) {
+    if (!$es_admin && !in_array('eliminar_combo', $permisos)) { echo "Sin permiso"; exit; }
+    $ids = json_decode($_POST['ids_a_borrar'], true);
+    if (!empty($ids) && is_array($ids)) {
+        try {
+            $conexion->beginTransaction();
+            foreach($ids as $id) {
+                $id = intval($id);
+                $stmtC = $conexion->prepare("SELECT codigo_barras FROM combos WHERE id = ?");
+                $stmtC->execute([$id]);
+                $cod = $stmtC->fetchColumn();
+
+                $conexion->prepare("DELETE FROM combo_items WHERE id_combo = ?")->execute([$id]);
+                $conexion->prepare("DELETE FROM combos WHERE id = ?")->execute([$id]);
+                if($cod) $conexion->prepare("DELETE FROM productos WHERE codigo_barras = ?")->execute([$cod]);
+            }
+            $conexion->commit();
+            echo "EXITO";
+        } catch(Exception $e) { $conexion->rollBack(); echo "ERROR: ".$e->getMessage(); }
+    }
+    exit;
+}
+
 if (isset($_GET['eliminar_id'])) {
     if (!$es_admin && !in_array('eliminar_combo', $permisos)) die("Sin permiso para eliminar.");
     try {
@@ -149,9 +176,9 @@ if (isset($_GET['eliminar_id'])) {
 }
 
 // --- 3. DATOS ---
-$combos = $conexion->query("SELECT c.*, p.precio_oferta, p.imagen_url, p.id_categoria, p.es_destacado_web FROM combos c LEFT JOIN productos p ON c.codigo_barras = p.codigo_barras WHERE c.activo=1 ORDER BY c.id DESC")->fetchAll(PDO::FETCH_ASSOC);
-$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll(PDO::FETCH_ASSOC);
-$productos_lista = $conexion->query("SELECT id, descripcion, stock_actual, precio_venta, precio_costo FROM productos WHERE activo=1 AND tipo != 'combo' ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_ASSOC);
+$combos = $conexion->query("SELECT c.*, p.precio_oferta, p.imagen_url, p.id_categoria, p.es_destacado_web FROM combos c LEFT JOIN productos p ON c.codigo_barras = p.codigo_barras WHERE c.activo=1 AND (c.tipo_negocio = '$rubro_actual' OR c.tipo_negocio IS NULL) ORDER BY c.id DESC")->fetchAll(PDO::FETCH_ASSOC);
+$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchAll(PDO::FETCH_ASSOC);
+$productos_lista = $conexion->query("SELECT id, descripcion, stock_actual, precio_venta, precio_costo FROM productos WHERE activo=1 AND tipo != 'combo' AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 $recetas_data = [];
 foreach($combos as $c) {
@@ -225,10 +252,15 @@ include 'includes/componente_banner.php';
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
 
     <div class="filter-bar sticky-desktop rounded-4 p-3">
-        <div class="d-flex gap-2 w-100 d-md-none mb-2">
-            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm" type="button" onclick="toggleFiltrosMovil()">
+        <div class="d-flex gap-2 w-100 mb-2">
+            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm d-md-none" type="button" onclick="toggleFiltrosMovil()">
                 <i class="bi bi-funnel-fill"></i> MOSTRAR BUSCADOR
             </button>
+            <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
+            <button type="button" id="btnBorrarMasivo" class="btn btn-danger fw-bold shadow-sm flex-fill flex-md-grow-0 d-none" onclick="borrarSeleccionados()">
+                <i class="bi bi-trash3-fill me-1"></i> BORRAR (<span id="cuentaSeleccionados">0</span>)
+            </button>
+            <?php endif; ?>
         </div>
 
         <div id="wrapperFiltros" class="filter-content-wrapper mt-md-0 mt-2">
@@ -244,6 +276,9 @@ include 'includes/componente_banner.php';
         <div class="col-12 col-md-6 col-lg-4 item-grid" data-nombre="<?php echo strtolower($c['nombre'] . ' ' . $c['codigo_barras']); ?>">
             <div class="card-combo h-100 d-flex flex-column border-0 shadow-sm rounded-4 overflow-hidden">
                 <div class="img-combo-box" style="height: 180px; background: #f8f9fa; position: relative;">
+                    <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
+                    <input type="checkbox" class="form-check-input checkCombo position-absolute top-0 start-0 m-2 shadow-sm" value="<?php echo $c['id']; ?>" onclick="event.stopPropagation(); revisarChecks()" style="transform: scale(1.4); cursor:pointer; z-index: 10;">
+                    <?php endif; ?>
                     <img src="<?php echo $c['imagen_url'] ?: 'img/no-image.png'; ?>" loading="lazy" style="width: 100%; height: 100%; object-fit: cover;">
                     <?php if($c['es_destacado_web']): ?><span class="badge bg-warning text-dark position-absolute top-0 end-0 m-2 shadow-sm"><i class="bi bi-star-fill"></i> Destacado</span><?php endif; ?>
                 </div>
@@ -293,8 +328,13 @@ include 'includes/componente_banner.php';
                 <table class="table table-hover align-middle mb-0" style="font-size: 14px;">
                     <thead class="table-light">
                         <tr>
-                            <th class="ps-3" style="width: 15%;">CÓDIGO</th>
-                            <th style="width: 35%;">COMBO / PACK</th>
+                            <th class="ps-3" style="width: 5%;">
+                                <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
+                                <input type="checkbox" class="form-check-input" onclick="alternarTodos(this)" style="transform: scale(1.2); cursor:pointer;">
+                                <?php endif; ?>
+                            </th>
+                            <th style="width: 15%;">CÓDIGO</th>
+                            <th style="width: 30%;">COMBO / PACK</th>
                             <th class="text-center" style="width: 15%;">ESTADO</th>
                             <th class="text-end" style="width: 15%;">PRECIO</th>
                             <th class="text-center" style="width: 20%;">ACCIONES</th>
@@ -303,7 +343,12 @@ include 'includes/componente_banner.php';
                     <tbody>
                         <?php foreach($combos as $c): ?>
                         <tr class="item-lista" data-nombre="<?php echo strtolower($c['nombre'] . ' ' . $c['codigo_barras']); ?>">
-                            <td class="ps-3 text-muted fw-bold"><?php echo $c['codigo_barras']; ?></td>
+                            <td class="ps-3">
+                                <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
+                                <input type="checkbox" class="form-check-input checkCombo" value="<?php echo $c['id']; ?>" onclick="event.stopPropagation(); revisarChecks()" style="transform: scale(1.2); cursor:pointer;">
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-muted fw-bold"><?php echo $c['codigo_barras']; ?></td>
                             <td>
                                 <div class="fw-bold text-dark fs-6"><?php echo $c['nombre']; ?></div>
                                 <div class="small text-muted">Contiene <?php echo count($recetas_data[$c['id']]); ?> productos</div>
@@ -320,12 +365,14 @@ include 'includes/componente_banner.php';
                                 <?php endif; ?>
                             </td>
                             <td class="text-center">
-                                <?php if($es_admin || in_array('editar_combo', $permisos)): ?>
-                                <button class="btn btn-sm btn-outline-primary" onclick="abrirEditar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
-                                <?php endif; ?>
-                                <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
-                                <button class="btn btn-sm btn-outline-danger" onclick="borrarPack(<?php echo $c['id']; ?>)"><i class="bi bi-trash"></i></button>
-                                <?php endif; ?>
+                                <div class="d-flex justify-content-center gap-1">
+                                    <?php if($es_admin || in_array('editar_combo', $permisos)): ?>
+                                    <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="event.stopPropagation(); abrirEditar(<?php echo $c['id']; ?>)"><i class="bi bi-pencil"></i></button>
+                                    <?php endif; ?>
+                                    <?php if($es_admin || in_array('eliminar_combo', $permisos)): ?>
+                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" onclick="event.stopPropagation(); borrarPack(<?php echo $c['id']; ?>)"><i class="bi bi-trash-fill"></i></button>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -537,9 +584,46 @@ include 'includes/componente_banner.php';
         cropper = new Cropper(document.getElementById('imageToCrop'), {aspectRatio:1, viewMode:1});
     });
     
-    window.borrarPack = function(id) {
-        Swal.fire({title:'¿Borrar Combo?', text:'Esta acción no afecta el stock de los productos que lo integran.', icon:'warning', showCancelButton:true, confirmButtonText:'Sí, borrar', confirmButtonColor:'#d33', cancelButtonText: 'Cancelar'}).then((r)=>{
-            if(r.isConfirmed) window.location.href='combos.php?eliminar_id='+id;
+    window.borrarPack = function(id) { procesarBorrado([id]); }
+
+    window.revisarChecks = function() {
+        let marcados = document.querySelectorAll('.checkCombo:checked').length;
+        let btn = document.getElementById('btnBorrarMasivo');
+        let span = document.getElementById('cuentaSeleccionados');
+        if(span) span.innerText = marcados;
+        if(btn) {
+            if(marcados > 0) btn.classList.remove('d-none');
+            else btn.classList.add('d-none');
+        }
+    }
+
+    window.borrarSeleccionados = function() {
+        let seleccionados = [];
+        document.querySelectorAll('.checkCombo:checked').forEach(c => seleccionados.push(c.value));
+        if(seleccionados.length > 0) procesarBorrado(seleccionados);
+    }
+
+    window.procesarBorrado = function(listaIds) {
+        Swal.fire({
+            title: '¿Confirmar borrado?',
+            text: "Vas a eliminar " + listaIds.length + " combo(s). Esto no afecta el stock de los productos internos.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Sí, Eliminar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                let formData = new FormData();
+                formData.append('solicitud_borrar_masivo', '1');
+                formData.append('ids_a_borrar', JSON.stringify(listaIds));
+                fetch(window.location.pathname, { method: 'POST', body: formData })
+                .then(res => res.text())
+                .then(texto => {
+                    if(texto.includes("EXITO")) { Swal.fire('Eliminado', 'Se borraron los registros', 'success').then(()=>location.reload()); }
+                    else { Swal.fire('Error', texto, 'error'); }
+                });
+            }
         });
     }
 

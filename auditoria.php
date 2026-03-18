@@ -13,14 +13,18 @@ if (!$es_admin && !in_array('ver_auditoria', $permisos)) { header("Location: das
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-1 week'));
 $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $f_user   = $_GET['f_user'] ?? '';
 $f_accion = $_GET['f_accion'] ?? '';
 $buscar   = trim($_GET['buscar'] ?? '');
 
-$sql_filtros = " WHERE DATE(a.fecha) >= ? AND DATE(a.fecha) <= ?";
+$sql_filtros = " WHERE DATE(a.fecha) >= ? AND DATE(a.fecha) <= ? AND (a.tipo_negocio = '$rubro_actual' OR a.tipo_negocio IS NULL)";
 $params = [$desde, $hasta];
+
 if(!empty($f_user)) { $sql_filtros .= " AND a.id_usuario = ?"; $params[] = $f_user; }
 if(!empty($f_accion)) { $sql_filtros .= " AND a.accion LIKE ?"; $params[] = "%$f_accion%"; }
 if(!empty($buscar)) { $sql_filtros .= " AND (a.detalles LIKE ? OR a.id = ?)"; array_push($params, "%$buscar%", intval($buscar)); }
@@ -72,8 +76,8 @@ $subtitulo = "Registro de trazabilidad y movimientos de usuarios.";
 $icono_bg = "bi-shield-lock";
 $botones = [['texto' => 'Reporte PDF', 'link' => "reporte_auditoria.php?$query_filtros", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']];
 $widgets = [
-    ['label' => 'Movimientos Hoy', 'valor' => $conexion->query("SELECT COUNT(*) FROM auditoria WHERE DATE(fecha)=CURDATE()")->fetchColumn(), 'icono' => 'bi-activity', 'icon_bg' => 'bg-white bg-opacity-10'],
-    ['label' => 'Críticos Hoy', 'valor' => $conexion->query("SELECT COUNT(*) FROM auditoria WHERE DATE(fecha)=CURDATE() AND (accion LIKE '%ELIMIN%' OR accion LIKE '%BAJA%')")->fetchColumn(), 'icono' => 'bi-exclamation-triangle', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20'],
+    ['label' => 'Movimientos Hoy', 'valor' => $conexion->query("SELECT COUNT(*) FROM auditoria WHERE DATE(fecha)=CURDATE() AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchColumn(), 'icono' => 'bi-activity', 'icon_bg' => 'bg-white bg-opacity-10'],
+    ['label' => 'Críticos Hoy', 'valor' => $conexion->query("SELECT COUNT(*) FROM auditoria WHERE DATE(fecha)=CURDATE() AND (accion LIKE '%ELIMIN%' OR accion LIKE '%BAJA%') AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchColumn(), 'icono' => 'bi-exclamation-triangle', 'border' => 'border-danger', 'icon_bg' => 'bg-danger bg-opacity-20'],
     ['label' => 'Filtrados', 'valor' => $total_regs, 'icono' => 'bi-funnel', 'border' => 'border-info', 'icon_bg' => 'bg-info bg-opacity-20']
 ];
 include 'includes/componente_banner.php';

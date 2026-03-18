@@ -24,6 +24,9 @@ $stmt->execute([$usuario_id]);
 $caja = $stmt->fetch(PDO::FETCH_ASSOC);
 $id_caja_sesion = $caja['id'] ?? null;
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // --- 2. REGISTRO DE GASTO ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (!$es_admin && !in_array('crear_gasto', $permisos)) { die("Sin permiso."); }
@@ -33,13 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $monto = $_POST['monto'];
     $cat = $_POST['categoria'];
     
-    $stmt = $conexion->prepare("INSERT INTO gastos (descripcion, monto, categoria, fecha, id_usuario, id_caja_sesion) VALUES (?, ?, ?, NOW(), ?, ?)");
-    $stmt->execute([$desc, $monto, $cat, $usuario_id, $id_caja_sesion]);
+    $stmt = $conexion->prepare("INSERT INTO gastos (descripcion, monto, categoria, fecha, id_usuario, id_caja_sesion, tipo_negocio) VALUES (?, ?, ?, NOW(), ?, ?, ?)");
+    $stmt->execute([$desc, $monto, $cat, $usuario_id, $id_caja_sesion, $rubro_actual]);
     $id_gasto_nuevo = $conexion->lastInsertId();
 
     try {
         $detalles_audit = "Gasto registrado (#$id_gasto_nuevo) en '$cat' por $$monto. Detalle: $desc";
-        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'GASTO', ?, NOW())")->execute([$usuario_id, $detalles_audit]);
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'GASTO', ?, NOW(), ?)")->execute([$usuario_id, $detalles_audit, $rubro_actual]);
     } catch (Exception $e) { }
 
     header("Location: gastos.php?msg=ok"); exit;
@@ -53,15 +56,16 @@ $f_usu = $_GET['id_usuario'] ?? '';
 $buscar = trim($_GET['buscar'] ?? '');
 
 // Filtros para Gastos
-$condG = ["DATE(g.fecha) >= ?", "DATE(g.fecha) <= ?"];
+$condG = ["DATE(g.fecha) >= ?", "DATE(g.fecha) <= ?", "(g.tipo_negocio = '$rubro_actual' OR g.tipo_negocio IS NULL)"];
 $paramsG = [$desde, $hasta];
 if($f_cat !== '' && $f_cat !== 'Mermas') { $condG[] = "g.categoria = ?"; $paramsG[] = $f_cat; }
 if($f_usu !== '') { $condG[] = "g.id_usuario = ?"; $paramsG[] = $f_usu; }
 if(!empty($buscar)) { $condG[] = "(g.descripcion LIKE ? OR g.id = ?)"; array_push($paramsG, "%$buscar%", intval($buscar)); }
 
 // Filtros para Mermas
-$condM = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
+$condM = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'", "(m.tipo_negocio = '$rubro_actual' OR m.tipo_negocio IS NULL)"];
 $paramsM = [$desde, $hasta];
+
 if($f_usu !== '') { $condM[] = "m.id_usuario = ?"; $paramsM[] = $f_usu; }
 if($f_cat !== '' && $f_cat !== 'Mermas') { $condM[] = "1=0"; } 
 if(!empty($buscar)) { $condM[] = "(m.motivo LIKE ? OR m.id = ?)"; array_push($paramsM, "%$buscar%", intval($buscar)); }

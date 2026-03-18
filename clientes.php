@@ -18,6 +18,9 @@ if (!$es_admin && !in_array('ver_clientes', $permisos)) {
 }
 
 // 2. LÓGICA DE ACCIONES (CON PROTECCIÓN NULL PARA MYSQL)
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
     $nombre    = trim($_POST['nombre'] ?? '');
     
@@ -40,9 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
                 $sql = "UPDATE clientes SET nombre=?, telefono=?, whatsapp=?, email=?, direccion=?, dni=?, dni_cuit=?, limite_credito=?, fecha_nacimiento=?, usuario=? WHERE id=?";
                 $conexion->prepare($sql)->execute([$nombre, $telefono, $telefono, $email, $direccion, $dni, $dni, $limite, $fecha_nac, $user_form, $id_edit]);
             } else {
-                $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, whatsapp, email, fecha_nacimiento, limite_credito, usuario, direccion, fecha_registro, saldo_deudor, puntos_acumulados) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0)";
-                $conexion->prepare($sql)->execute([$nombre, $dni, $dni, $telefono, $telefono, $email, $fecha_nac, $limite, $user_form, $direccion]);
+                $sql = "INSERT INTO clientes (nombre, dni, dni_cuit, telefono, whatsapp, email, fecha_nacimiento, limite_credito, usuario, direccion, fecha_registro, saldo_deudor, puntos_acumulados, tipo_negocio) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0, ?)";
+                $conexion->prepare($sql)->execute([$nombre, $dni, $dni, $telefono, $telefono, $email, $fecha_nac, $limite, $user_form, $direccion, $rubro_actual]);
             }
             header("Location: clientes.php?msg=ok"); exit;
         } catch (Exception $e) { die("Error Crítico DB: " . $e->getMessage()); }
@@ -81,6 +84,7 @@ if (isset($_GET['estado'])) {
 if (!empty($buscar)) {
     $cond[] = "(c.nombre LIKE '%$buscar%' OR c.dni LIKE '%$buscar%')";
 }
+$cond[] = "(c.tipo_negocio = '$rubro_actual' OR c.tipo_negocio IS NULL)";
 
 $where_clause = (count($cond) > 0) ? " WHERE " . implode(" AND ", $cond) : "";
 
@@ -117,7 +121,9 @@ try {
     }
 } catch (Exception $e) { }
 
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 ?>
 
 <style>

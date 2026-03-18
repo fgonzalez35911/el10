@@ -69,15 +69,47 @@ if (isset($_GET['borrar'])) {
     header("Location: productos.php?msg=borrado"); exit;
 }
 
+// --- BORRADO MASIVO AJAX ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['solicitud_borrar_masivo'])) {
+    if (!$es_admin && !in_array('eliminar_producto', $permisos)) { echo "Sin permiso"; exit; }
+    $ids = json_decode($_POST['ids_a_borrar'], true);
+    if (!empty($ids) && is_array($ids)) {
+        foreach($ids as $id_borrar) {
+            $id_borrar = intval($id_borrar);
+            $stmtP = $conexion->prepare("SELECT tipo, codigo_barras FROM productos WHERE id = ?");
+            $stmtP->execute([$id_borrar]);
+            $p_obj = $stmtP->fetch(PDO::FETCH_ASSOC);
+            if ($p_obj) {
+                if ($p_obj['tipo'] === 'combo') { 
+                    $stmtC = $conexion->prepare("SELECT id FROM combos WHERE codigo_barras = ?");
+                    $stmtC->execute([$p_obj['codigo_barras']]);
+                    $id_c = $stmtC->fetchColumn();
+                    if($id_c) {
+                        $conexion->prepare("DELETE FROM combo_items WHERE id_combo = ?")->execute([$id_c]);
+                        $conexion->prepare("DELETE FROM combos WHERE id = ?")->execute([$id_c]);
+                    }
+                }
+                $conexion->prepare("DELETE FROM productos WHERE id = ?")->execute([$id_borrar]);
+            }
+        }
+        echo "EXITO";
+    }
+    exit;
+}
+
 // 3. CARGA DE DATOS
 $conf_global = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $dias_venc = intval($conf_global['dias_alerta_vencimiento'] ?? 30);
 $usar_global = (isset($conf_global['stock_use_global']) && $conf_global['stock_use_global'] == 1);
 $stock_critico_global = intval($conf_global['stock_global_valor'] ?? 5);
 
-$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll(PDO::FETCH_ASSOC);
+// Detectamos en qué rubro está el sistema ahora mismo
+$rubro_actual = $conf_global['tipo_negocio'] ?? 'kiosco';
+
+// Solo traemos las categorías y productos de ESE rubro
+$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchAll(PDO::FETCH_ASSOC);
 $proveedores_list = $conexion->query("SELECT id, empresa FROM proveedores ORDER BY empresa ASC")->fetchAll(PDO::FETCH_ASSOC);
-$sql = "SELECT p.*, c.nombre as cat FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id ORDER BY p.id DESC";
+$sql = "SELECT p.*, c.nombre as cat FROM productos p LEFT JOIN categorias c ON p.id_categoria=c.id WHERE p.tipo_negocio = '$rubro_actual' OR p.tipo_negocio IS NULL ORDER BY p.id DESC";
 $productos = $conexion->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
 $total_prod = count($productos);
@@ -88,7 +120,9 @@ foreach($productos as $p) {
     $valor_inventario += (floatval($p['stock_actual']) * floatval($p['precio_costo']));
 }
 
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 
 // --- DEFINICIÓN DEL BANNER DINÁMICO ESTANDARIZADO ---
 $titulo = "Catálogo de Productos";
@@ -112,38 +146,78 @@ include 'includes/componente_banner.php';
 <style>
     .row-bajo-stock .card-prod { background-color: #fff5f5 !important; border: 1px solid #ffcccc !important; box-shadow: 0 0 15px rgba(220, 53, 69, 0.1) !important; }
     
-    /* Filtros más pegados arriba en escritorio */
-    .filter-bar.sticky-desktop { position: sticky; top: 65px; z-index: 1000; background: #fff; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    /* Filtros compactos, centrados y minimalistas */
+    .filter-bar.sticky-desktop { 
+        position: sticky; 
+        top: 65px; 
+        z-index: 1000; 
+        background: rgba(255, 255, 255, 0.95); 
+        backdrop-filter: blur(5px); 
+        margin-top: 10px; 
+        margin-bottom: 20px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+        padding: 8px 12px !important; /* Margen parejo arriba y abajo */
+        border: 1px solid #eee; 
+        border-radius: 8px !important; 
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .filter-select { height: 32px !important; font-size: 0.85rem !important; padding: 2px 10px !important; border-radius: 6px !important; border: 1px solid #ddd !important; outline: none; box-shadow: none; background-color: #f8f9fa; }
+    
+    /* Contenedor del buscador */
+    .search-group { position: relative; display: flex; align-items: center; background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; height: 32px; width: 100%; overflow: hidden; }
+    .search-input { border: none !important; box-shadow: none !important; height: 100% !important; background: transparent; font-size: 0.85rem; padding: 0 10px 0 32px !important; outline: none; width: 100%; }
+    
+    /* Lupa flotante que desaparece al escribir */
+    .search-icon { position: absolute; left: 10px; font-size: 0.9rem !important; color: #888; pointer-events: none; transition: opacity 0.15s ease; }
+    .search-input:not(:placeholder-shown) ~ .search-icon { opacity: 0; visibility: hidden; }
     
     @media (max-width: 768px) { 
-        .filter-bar.sticky-desktop { top: 10px; position: relative; padding: 10px; } 
-        /* Escondemos los filtros en móvil por defecto */
-        .filter-content-wrapper { display: none; flex-direction: column; gap: 10px; padding-top: 15px; }
+        .filter-bar.sticky-desktop { top: 5px; margin-top: 15px; padding: 10px !important; } 
+        .filter-content-wrapper { display: none; flex-direction: column; gap: 8px; padding-top: 8px; }
         .filter-content-wrapper.show { display: flex; }
         .search-group, .filter-select { width: 100% !important; }
     }
     
-    /* Siempre visibles en escritorio */
     @media (min-width: 769px) {
-        .filter-content-wrapper { display: flex !important; width: 100%; gap: 10px; align-items: center; }
+        .filter-content-wrapper { display: flex !important; width: 100%; gap: 10px; align-items: center; margin: 0 !important; }
         .btn-toggle-filters { display: none; }
     }
+
+    /* --- DISEÑO COMPACTO PARA TARJETAS DE PRODUCTOS --- */
+    .card-prod { min-height: 100% !important; display: flex; flex-direction: column; }
+    .img-area { height: 160px !important; padding: 10px !important; } 
+    .prod-img { max-height: 145px !important; object-fit: contain; }
+    .card-body { padding: 10px 12px !important; flex-grow: 1; display: flex; flex-direction: column; gap: 2px; } 
+    .cat-label { font-size: 0.65rem !important; margin-bottom: 0 !important; }
+    .prod-title { font-size: 0.95rem !important; line-height: 1.1 !important; margin-bottom: 0 !important; } 
+    .prod-code { font-size: 0.70rem !important; margin-bottom: 0 !important; }
+    .price-normal { font-size: 1.25rem !important; margin-bottom: 0 !important; }
+    .card-footer-actions { padding-top: 6px !important; margin-top: auto !important; }
+    .btn-action { width: 32px !important; height: 32px !important; font-size: 0.85rem !important; } 
+    .stock-progress { height: 6px !important; margin-top: 2px !important; }
 </style>
 
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
 
         <div class="filter-bar sticky-desktop rounded-4 p-3">
         
-        <div class="d-flex gap-2 w-100 d-md-none mb-2">
-            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm" type="button" onclick="toggleFiltrosMovil()">
+        <div class="d-flex gap-2 w-100 mb-md-0 mb-2">
+            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm d-md-none" type="button" onclick="toggleFiltrosMovil()">
                 <i class="bi bi-funnel-fill"></i> MOSTRAR FILTROS
             </button>
+            <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+            <button type="button" id="btnBorrarMasivo" class="btn btn-danger fw-bold shadow-sm flex-fill flex-md-grow-0 d-none mb-md-0 mb-2" onclick="borrarSeleccionados()">
+                <i class="bi bi-trash3-fill me-1"></i> BORRAR (<span id="cuentaSeleccionados">0</span>)
+            </button>
+            <?php endif; ?>
         </div>
 
         <div id="wrapperFiltros" class="filter-content-wrapper mt-md-0 mt-2">
             <div class="search-group flex-fill">
-                <i class="bi bi-search search-icon"></i>
                 <input type="text" id="buscador" class="search-input w-100" placeholder="Buscar nombre, código...">
+                <i class="bi bi-search search-icon"></i>
             </div>
             <select id="filtroCat" class="filter-select">
                 <option value="todos">📦 Todas las Categorías</option>
@@ -154,11 +228,13 @@ include 'includes/componente_banner.php';
                 <option value="activos">✅ Solo Activos</option>
                 <option value="pausados">⏸️ Pausados</option>
                 <option value="bajo_stock">⚠️ Stock Bajo</option>
+                <option value="vencimientos">⏳ Vencimientos</option>
             </select>
             <select id="ordenarPor" class="filter-select">
-                <option value="recientes">📅 Recientes</option>
-                <option value="nombre_asc">A-Z Nombre</option>
+                <option value="recientes">📅 Más Recientes</option>
+                <option value="nombre_asc">🔤 A-Z Nombre</option>
                 <option value="precio_alto">💲 Mayor Precio</option>
+                <option value="precio_bajo">💲 Menor Precio</option>
             </select>
         </div>
     </div>
@@ -184,7 +260,14 @@ include 'includes/componente_banner.php';
             if($p['tipo'] === 'combo') $colorBarra = '#0d6efd';
 
             $precioV = !empty($p['precio_oferta']) && $p['precio_oferta'] > 0 ? $p['precio_oferta'] : $p['precio_venta'];
-            $estadoData = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock ? ' bajo_stock' : '');
+            
+            $es_vencimiento = false;
+            if (!empty($p['fecha_vencimiento'])) {
+                if (strtotime($p['fecha_vencimiento']) <= strtotime("+$dias_venc days")) {
+                    $es_vencimiento = true;
+                }
+            }
+            $estadoData = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock ? ' bajo_stock' : '') . ($es_vencimiento ? ' vencimientos' : '');
             
             // Formateo visual de stock para pesables
             $txt_stock = $stk . " u.";
@@ -205,8 +288,11 @@ include 'includes/componente_banner.php';
              data-id="<?php echo $p['id']; ?>">
 
             <div class="card-prod <?php echo $p['activo'] ? '' : 'opacity-50 grayscale'; ?>" onclick="verFichaProducto(<?php echo $p['id']; ?>)" style="cursor:pointer;">
-                <div class="badge-top-left">
-                    <?php if($es_bajo_stock): ?><div class="badge bg-danger text-white mt-1 shadow-sm" style="font-size:0.6rem;">BAJO STOCK</div><?php endif; ?>
+                <div class="badge-top-left d-flex flex-column gap-1 align-items-start">
+                    <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                    <input type="checkbox" class="form-check-input checkProd" value="<?php echo $p['id']; ?>" onclick="event.stopPropagation(); revisarChecks()" style="transform: scale(1.3); margin: 5px; cursor:pointer;">
+                    <?php endif; ?>
+                    <?php if($es_bajo_stock): ?><div class="badge bg-danger text-white shadow-sm" style="font-size:0.6rem;">BAJO STOCK</div><?php endif; ?>
                 </div>
 
                 <div class="img-area">
@@ -231,9 +317,12 @@ include 'includes/componente_banner.php';
                             <div class="form-check form-switch m-0">
                                 <input class="form-check-input" type="checkbox" onclick="event.stopPropagation();" onchange="window.location.href='productos.php?toggle_id=<?php echo $p['id']; ?>&estado=<?php echo $p['activo']; ?>'" <?php echo $p['activo'] ? 'checked' : ''; ?>>
                             </div>
-                            <div class="d-flex gap-2 ms-auto">
+                            <div class="d-flex gap-1 ms-auto">
                                 <button type="button" class="btn-action btn-wallet" onclick="event.stopPropagation(); reponerStock(<?php echo $p['id']; ?>, '<?php echo addslashes($p['descripcion']); ?>', <?php echo $stk; ?>, '<?php echo $p['tipo']; ?>')"><i class="bi bi-plus-circle-fill"></i></button>
                                 <a href="<?php echo $p['tipo'] === 'combo' ? 'combos.php?editar_codigo='.trim($p['codigo_barras']).'&origen=productos' : 'producto_formulario.php?id='.$p['id']; ?>" class="btn-action btn-edit" onclick="event.stopPropagation();"><i class="bi bi-pencil-fill"></i></a>
+                                <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                                <button type="button" class="btn-action btn-danger" style="background:#dc3545; color:white; border-radius:50%; width:32px; height:32px; border:none; display:flex; align-items:center; justify-content:center;" onclick="event.stopPropagation(); borrarId(<?php echo $p['id']; ?>)"><i class="bi bi-trash-fill"></i></button>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -262,8 +351,13 @@ include 'includes/componente_banner.php';
                 <table class="table table-hover table-sm align-middle mb-0" style="font-size: 13px;">
                     <thead class="table-light">
                         <tr>
-                            <th class="ps-3 d-none d-md-table-cell" style="width: 15%;">CÓDIGO</th>
-                            <th style="width: 35%;">PRODUCTO</th>
+                            <th class="ps-3" style="width: 5%;">
+                                <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                                <input type="checkbox" class="form-check-input" onclick="alternarTodosCat(this, '<?php echo md5($nom_cat); ?>')" style="transform: scale(1.2); cursor:pointer;">
+                                <?php endif; ?>
+                            </th>
+                            <th class="d-none d-md-table-cell" style="width: 15%;">CÓDIGO</th>
+                            <th style="width: 30%;">PRODUCTO</th>
                             <th class="text-end" style="width: 15%;">PRECIO</th>
                             <th class="text-center" style="width: 15%;">STOCK</th>
                             <th class="text-center d-none d-md-table-cell" style="width: 10%;">ESTADO</th>
@@ -272,7 +366,16 @@ include 'includes/componente_banner.php';
                     </thead>
                     <tbody>
                         <?php foreach($items_cat as $p): 
-                            $estD = ($p['activo'] ? 'activos' : 'pausados');
+                            $stk_cat = floatval($p['stock_actual']);
+                            $min_cat = floatval($p['stock_minimo']);
+                            $limite_cat = ($usar_global) ? $stock_critico_global : $min_cat;
+                            $es_bajo_stock_cat = ($p['tipo'] !== 'combo' && $stk_cat <= $limite_cat);
+                            $es_vencimiento_cat = false;
+                            if (!empty($p['fecha_vencimiento']) && strtotime($p['fecha_vencimiento']) <= strtotime("+$dias_venc days")) {
+                                $es_vencimiento_cat = true;
+                            }
+                            $estD = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock_cat ? ' bajo_stock' : '') . ($es_vencimiento_cat ? ' vencimientos' : '');
+                            
                             $pv = !empty($p['precio_oferta']) && $p['precio_oferta']>0 ? $p['precio_oferta'] : $p['precio_venta'];
                             $stk_lista = floatval($p['stock_actual']);
                             $txt_stock_lista = $stk_lista . " u.";
@@ -284,8 +387,13 @@ include 'includes/componente_banner.php';
                                 else $txt_stock_lista = $gramos_l . "gr";
                             }
                         ?>
-                        <tr class="item-lista" data-nombre="<?= strtolower($p['descripcion']) ?>" data-codigo="<?= strtolower($p['codigo_barras']) ?>" data-cat="<?= $p['id_categoria'] ?>" data-estado="<?= $estD ?>">
-                            <td class="ps-3 text-muted d-none d-md-table-cell"><?= $p['codigo_barras'] ?></td>
+                        <tr class="item-lista" data-nombre="<?= strtolower($p['descripcion']) ?>" data-codigo="<?= strtolower($p['codigo_barras']) ?>" data-cat="<?= $p['id_categoria'] ?>" data-estado="<?= $estD ?>" data-precio="<?= $pv ?>" data-id="<?= $p['id'] ?>">
+                            <td class="ps-3">
+                                <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                                <input type="checkbox" class="form-check-input checkProd checkCat-<?php echo md5($nom_cat); ?>" value="<?= $p['id'] ?>" onclick="event.stopPropagation(); revisarChecks()" style="transform: scale(1.2); cursor:pointer;">
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-muted d-none d-md-table-cell"><?= $p['codigo_barras'] ?></td>
                             <td class="fw-bold" style="cursor:pointer; color: #102A57;" onclick="verFichaProducto(<?= $p['id'] ?>)">
                                 <?= $p['descripcion'] ?>
                                 <div class="d-md-none text-muted fw-normal mt-1" style="font-size: 10px;">Cód: <?= $p['codigo_barras'] ?></div>
@@ -301,6 +409,9 @@ include 'includes/componente_banner.php';
                                 <div class="d-flex justify-content-center gap-1">
                                     <button class="btn btn-sm btn-primary py-0 px-2" onclick="reponerStock(<?= $p['id'] ?>, '<?= addslashes($p['descripcion']) ?>', <?= floatval($p['stock_actual']) ?>, '<?= $p['tipo'] ?>')">+ Stock</button>
                                     <a href="<?= $p['tipo'] === 'combo' ? 'combos.php?editar_codigo='.trim($p['codigo_barras']).'&origen=productos' : 'producto_formulario.php?id='.$p['id'] ?>" class="btn btn-sm btn-outline-dark py-0 px-2"><i class="bi bi-pencil"></i></a>
+                                    <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" onclick="event.stopPropagation(); borrarId(<?= $p['id'] ?>)"><i class="bi bi-trash-fill"></i></button>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>
@@ -595,34 +706,123 @@ function aplicarFiltros() {
     let txt = document.getElementById('buscador').value.toLowerCase();
     let cat = document.getElementById('filtroCat').value;
     let est = document.getElementById('filtroEstado').value;
+    let ord = document.getElementById('ordenarPor').value;
     
-    // Filtra las tarjetas normales
-    document.querySelectorAll('.item-grid').forEach(item => {
-        let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
-        let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
-        let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
-        if(cumpleTxt && cumpleCat && cumpleEst) { item.classList.remove('d-none'); } else { item.classList.add('d-none'); }
-    });
+    // 1. ORDENAR Y FILTRAR TARJETAS (GRID)
+    let grid = document.getElementById('gridProductos');
+    if (grid) {
+        let itemsGrid = Array.from(grid.querySelectorAll('.item-grid'));
+        
+        // Primero ordenamos en memoria
+        itemsGrid.sort((a, b) => {
+            if (ord === 'nombre_asc') return a.dataset.nombre.localeCompare(b.dataset.nombre);
+            if (ord === 'precio_alto') return parseFloat(b.dataset.precio) - parseFloat(a.dataset.precio);
+            if (ord === 'precio_bajo') return parseFloat(a.dataset.precio) - parseFloat(b.dataset.precio);
+            return parseInt(b.dataset.id) - parseInt(a.dataset.id); // recientes
+        });
+        
+        // Luego las pegamos de nuevo y aplicamos visibilidad
+        itemsGrid.forEach(item => {
+            grid.appendChild(item);
+            let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
+            let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
+            let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
+            if(cumpleTxt && cumpleCat && cumpleEst) { item.classList.remove('d-none'); } else { item.classList.add('d-none'); }
+        });
+    }
 
-    // Filtra las filas de las tablas
-    document.querySelectorAll('.item-lista').forEach(item => {
-        let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
-        let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
-        let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
-        if(cumpleTxt && cumpleCat && cumpleEst) { item.classList.remove('d-none'); } else { item.classList.add('d-none'); }
-    });
-
-    // Oculta la categoría entera si no quedaron productos visibles adentro por el buscador
+    // 2. ORDENAR Y FILTRAR LISTAS (TABLAS)
     document.querySelectorAll('.seccion-categoria').forEach(sec => {
-        let filasVisibles = sec.querySelectorAll('.item-lista:not(.d-none)').length;
-        if (filasVisibles === 0) { sec.classList.add('d-none'); } else { sec.classList.remove('d-none'); }
+        let tbody = sec.querySelector('tbody');
+        if (tbody) {
+            let itemsLista = Array.from(tbody.querySelectorAll('.item-lista'));
+            
+            itemsLista.sort((a, b) => {
+                if (ord === 'nombre_asc') return a.dataset.nombre.localeCompare(b.dataset.nombre);
+                if (ord === 'precio_alto') return parseFloat(b.dataset.precio) - parseFloat(a.dataset.precio);
+                if (ord === 'precio_bajo') return parseFloat(a.dataset.precio) - parseFloat(b.dataset.precio);
+                return parseInt(b.dataset.id) - parseInt(a.dataset.id);
+            });
+            
+            let filasVisibles = 0;
+            itemsLista.forEach(item => {
+                tbody.appendChild(item);
+                let cumpleTxt = (item.dataset.nombre.includes(txt) || item.dataset.codigo.includes(txt));
+                let cumpleCat = (cat === 'todos' || item.dataset.cat === cat);
+                let cumpleEst = (est === 'todos' || item.dataset.estado.includes(est));
+                if(cumpleTxt && cumpleCat && cumpleEst) { 
+                    item.classList.remove('d-none'); 
+                    filasVisibles++;
+                } else { 
+                    item.classList.add('d-none'); 
+                }
+            });
+            
+            if (filasVisibles === 0) { sec.classList.add('d-none'); } else { sec.classList.remove('d-none'); }
+        }
     });
 }
-
 
 document.getElementById('buscador').addEventListener('keyup', aplicarFiltros);
 document.getElementById('filtroCat').addEventListener('change', aplicarFiltros);
 document.getElementById('filtroEstado').addEventListener('change', aplicarFiltros);
+document.getElementById('ordenarPor').addEventListener('change', aplicarFiltros);
+
+// Auto-seleccionar filtro si viene desde el Dashboard
+document.addEventListener("DOMContentLoaded", function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const filtroUrl = urlParams.get('filtro');
+    if (filtroUrl) {
+        const selectEstado = document.getElementById('filtroEstado');
+        if (selectEstado.querySelector('option[value="'+filtroUrl+'"]')) {
+            selectEstado.value = filtroUrl;
+            aplicarFiltros();
+        }
+    }
+});
+
+function revisarChecks() {
+    let marcados = document.querySelectorAll('.checkProd:checked').length;
+    let btn = document.getElementById('btnBorrarMasivo');
+    let span = document.getElementById('cuentaSeleccionados');
+    if(span) span.innerText = marcados;
+    if(btn) {
+        if(marcados > 0) btn.classList.remove('d-none');
+        else btn.classList.add('d-none');
+    }
+}
+
+function borrarId(id) { procesarBorrado([id]); }
+
+function borrarSeleccionados() {
+    let seleccionados = [];
+    document.querySelectorAll('.checkProd:checked').forEach(c => seleccionados.push(c.value));
+    if(seleccionados.length > 0) procesarBorrado(seleccionados);
+}
+
+function procesarBorrado(listaIds) {
+    Swal.fire({
+        title: '¿Confirmar borrado?',
+        text: "Vas a eliminar " + listaIds.length + " producto(s). Esto borrará también combos asociados.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Sí, Eliminar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            let formData = new FormData();
+            formData.append('solicitud_borrar_masivo', '1');
+            formData.append('ids_a_borrar', JSON.stringify(listaIds));
+            fetch(window.location.pathname, { method: 'POST', body: formData })
+            .then(res => res.text())
+            .then(texto => {
+                if(texto.includes("EXITO")) { Swal.fire('Eliminado', 'Se borraron los registros', 'success').then(()=>location.reload()); }
+                else { Swal.fire('Error', texto, 'error'); }
+            });
+        }
+    });
+}
 
 function toggleFiltrosMovil() {
     const wrapper = document.getElementById('wrapperFiltros');

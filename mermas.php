@@ -29,6 +29,9 @@ if (!file_exists($ruta_firma) && file_exists("img/firmas/usuario_{$usuario_id}.p
     $ruta_firma = "img/firmas/usuario_{$usuario_id}.png";
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // PROCESAR BAJA
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
     if (!$es_admin && !in_array('crear_merma', $permisos)) { die("Sin permiso para registrar mermas."); }
@@ -40,14 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['id_producto'])) {
 
     try {
         $conexion->beginTransaction();
-        $stmt = $conexion->prepare("INSERT INTO mermas (id_producto, cantidad, motivo, fecha, id_usuario) VALUES (?, ?, ?, NOW(), ?)");
-        $stmt->execute([$id_prod, $cant, $motivo_full, $usuario_id]);
+        $stmt = $conexion->prepare("INSERT INTO mermas (id_producto, cantidad, motivo, fecha, id_usuario, tipo_negocio) VALUES (?, ?, ?, NOW(), ?, ?)");
+        $stmt->execute([$id_prod, $cant, $motivo_full, $usuario_id, $rubro_actual]);
         
         $conexion->prepare("UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?")->execute([$cant, $id_prod]);
         
         // NUEVO: REGISTRO OBLIGATORIO EN LA CAJA NEGRA (AUDITORÍA)
         $detalles_audit = "Baja de stock: " . floatval($cant) . " unid. | Motivo: " . $motivo_full;
-        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'MERMA', ?, NOW())")->execute([$usuario_id, $detalles_audit]);
+        $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'MERMA', ?, NOW(), ?)")->execute([$usuario_id, $detalles_audit, $rubro_actual]);
 
         $conexion->commit();
         header("Location: mermas.php?msg=ok"); exit;
@@ -63,7 +66,7 @@ $hasta = $_GET['hasta'] ?? date('Y-m-d');
 $f_usu = $_GET['id_usuario'] ?? '';
 $buscar = trim($_GET['buscar'] ?? '');
 
-$cond = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'"];
+$cond = ["DATE(m.fecha) >= ?", "DATE(m.fecha) <= ?", "m.motivo NOT LIKE 'Devolución #%'", "(m.tipo_negocio = '$rubro_actual' OR m.tipo_negocio IS NULL)"];
 $params = [$desde, $hasta];
 if($f_usu !== '') { $cond[] = "m.id_usuario = ?"; $params[] = $f_usu; }
 if(!empty($buscar)) { 
@@ -71,7 +74,7 @@ if(!empty($buscar)) {
     array_push($params, "%$buscar%", "%$buscar%", intval($buscar)); 
 }
 
-$productos = $conexion->query("SELECT id, descripcion, stock_actual FROM productos WHERE activo=1 ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_OBJ);
+$productos = $conexion->query("SELECT id, descripcion, stock_actual FROM productos WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY descripcion ASC")->fetchAll(PDO::FETCH_OBJ);
 
 $stmtM = $conexion->prepare("SELECT m.*, p.descripcion, p.precio_costo, u.usuario, u.nombre_completo, r.nombre as nombre_rol, u.id as id_op 
                              FROM mermas m 
@@ -83,7 +86,8 @@ $stmtM = $conexion->prepare("SELECT m.*, p.descripcion, p.precio_costo, u.usuari
 $stmtM->execute($params);
 $mermas = $stmtM->fetchAll(PDO::FETCH_OBJ);
 
-$kpiHoy = $conexion->query("SELECT COUNT(*) as cant, COALESCE(SUM(m.cantidad * p.precio_costo), 0) as costo_total FROM mermas m JOIN productos p ON m.id_producto = p.id WHERE DATE(m.fecha) = CURDATE()")->fetch(PDO::FETCH_ASSOC);
+$kpiHoy = $conexion->query("SELECT COUNT(*) as cant, COALESCE(SUM(m.cantidad * p.precio_costo), 0) as costo_total FROM mermas m JOIN productos p ON m.id_producto = p.id WHERE DATE(m.fecha) = CURDATE() AND (m.tipo_negocio = '$rubro_actual' OR m.tipo_negocio IS NULL)")->fetch(PDO::FETCH_ASSOC);
+
 $montoFiltrado = 0;
 foreach($mermas as $m) { $montoFiltrado += ($m->cantidad * $m->precio_costo); }
 ?>

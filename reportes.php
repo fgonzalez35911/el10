@@ -6,7 +6,13 @@ error_reporting(E_ALL);
 
 require_once 'includes/db.php';
 
+$tablas = ['ventas', 'gastos', 'devoluciones', 'mermas', 'productos', 'proveedores', 'combos', 'clientes', 'sorteos'];
+foreach($tablas as $t) {
+    try { $conexion->exec("ALTER TABLE $t ADD COLUMN tipo_negocio VARCHAR(50) NULL"); } catch(Exception $e){}
+}
+
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
+
 
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
@@ -56,6 +62,7 @@ $metodo = isset($_GET['metodo']) ? preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['me
 
 $conf = obtenerDatoSeguro($conexion, "SELECT * FROM configuracion LIMIT 1", true);
 $nombre_negocio = strtoupper($conf['nombre_negocio'] ?? 'SISTEMA DE GESTIÓN');
+$rubro_actual = $conf['tipo_negocio'] ?? 'kiosco';
 
 // ==============================================================================
 // 2. EXTRACCIÓN MASIVA DE DATOS OMNIDIRECCIONAL
@@ -77,7 +84,9 @@ foreach($resG as $rg) {
 
 $resDev = obtenerDatoSeguro($conexion, "SELECT COUNT(*) as c, SUM(monto_devuelto) as tot FROM devoluciones WHERE fecha $rango_sql", true);
 $resMer = obtenerDatoSeguro($conexion, "SELECT COUNT(*) as c, SUM(m.cantidad * p.precio_costo) as tot FROM mermas m JOIN productos p ON m.id_producto = p.id WHERE m.fecha $rango_sql", true);
+
 $resCajas = obtenerDatoSeguro($conexion, "SELECT COUNT(*) as aperturas, SUM(diferencia) as dif_total FROM cajas WHERE fecha_apertura $rango_sql", true);
+
 $resInv = obtenerDatoSeguro($conexion, "SELECT COUNT(id) as total_sku, SUM(IF(activo=1,1,0)) as activos, SUM(IF(stock_actual<=stock_minimo,1,0)) as criticos, SUM(stock_actual*precio_costo) as cap_inv, SUM(stock_actual*precio_venta) as val_mer FROM productos", true);
 $resProv = obtenerDatoSeguro($conexion, "SELECT COUNT(id) as c FROM proveedores", true);
 $resCombos = obtenerDatoSeguro($conexion, "SELECT COUNT(id) as c FROM combos WHERE activo=1", true);
@@ -117,6 +126,7 @@ $stats_clientes = obtenerDatoSeguro($conexion, "SELECT c.nombre, COUNT(v.id) as 
 $top_productos = obtenerDatoSeguro($conexion, "SELECT p.descripcion, SUM(d.cantidad) as cant, SUM(d.subtotal) as rec FROM detalle_ventas d JOIN ventas v ON d.id_venta = v.id JOIN productos p ON d.id_producto = p.id WHERE v.fecha $rango_sql AND v.estado = 'completada' GROUP BY p.id ORDER BY cant DESC LIMIT 5");
 $usuarios_db = obtenerDatoSeguro($conexion, "SELECT * FROM usuarios ORDER BY usuario ASC");
 
+
 // ==============================================================================
 // RENDERIZADO DE GRÁFICOS PARA PDF (URLs de QuickChart seguras)
 // ==============================================================================
@@ -146,7 +156,9 @@ $ruta_firma_pdf = ($dueno_firma && file_exists("img/firmas/usuario_" . $dueno_fi
 $report_id = "VZ-" . date('ym') . "-" . strtoupper(substr(md5(time()), 0, 6));
 
 // HTML VISUAL
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 $titulo = "Reporte de Gestión"; $subtitulo = "Análisis detallado de rendimiento, costos y utilidades."; $icono_bg = "bi-graph-up-arrow";
 $botones = [['texto' => 'DESCARGAS', 'link' => 'javascript:abrirModalDescargas()', 'icono' => 'bi-cloud-download-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm']];
 $widgets = [

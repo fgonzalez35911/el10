@@ -14,11 +14,13 @@ if (!$es_admin && !in_array('ver_historial_ventas', $permisos)) {
 }
 
 $color_sistema = '#102A57';
+$rubro_actual = 'kiosco';
 try {
-    $resColor = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1");
+    $resColor = $conexion->query("SELECT color_barra_nav, tipo_negocio FROM configuracion WHERE id=1");
     if ($resColor) {
         $dataC = $resColor->fetch(PDO::FETCH_ASSOC);
         if ($dataC && isset($dataC['color_barra_nav'])) $color_sistema = $dataC['color_barra_nav'];
+        if ($dataC && isset($dataC['tipo_negocio'])) $rubro_actual = $dataC['tipo_negocio'];
     }
 } catch (Exception $e) { }
 
@@ -27,7 +29,7 @@ $stmtUsu = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario A
 $usuarios_lista = $stmtUsu->fetchAll(PDO::FETCH_ASSOC);
 
 // OBTENER CLIENTES PARA EL FILTRO
-$stmtCli = $conexion->query("SELECT id, nombre FROM clientes ORDER BY nombre ASC");
+$stmtCli = $conexion->query("SELECT id, nombre FROM clientes WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY nombre ASC");
 $clientes_lista = $stmtCli->fetchAll(PDO::FETCH_ASSOC);
 
 // FILTROS
@@ -37,7 +39,7 @@ $buscar = $_GET['buscar'] ?? '';
 $f_cliente = $_GET['id_cliente'] ?? '';
 $f_usuario = $_GET['id_usuario'] ?? '';
 
-$condiciones = ["DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?"];
+$condiciones = ["DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?", "(v.tipo_negocio = '$rubro_actual' OR v.tipo_negocio IS NULL)"];
 $parametros = [$desde, $hasta];
 
 if (!empty($buscar)) {
@@ -62,8 +64,14 @@ $stats = $stmtStats->fetch(PDO::FETCH_OBJ);
 
 $totalFiltrado = $stats->monto_total ?? 0;
 
+// --- MOTOR DE PAGINACIÓN ---
+$pagina_actual = isset($_GET['pagina']) ? max(1, (int)$_GET['pagina']) : 1;
+$limite_por_pagina = 30;
+$offset = ($pagina_actual - 1) * $limite_por_pagina;
+$total_paginas = ceil(($stats->total_operaciones ?? 0) / $limite_por_pagina);
+
 // LISTADO
-$sqlVentas = "SELECT v.*, c.nombre as cliente, u.usuario FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id JOIN usuarios u ON v.id_usuario = u.id $where_sql ORDER BY v.fecha DESC";
+$sqlVentas = "SELECT v.*, c.nombre as cliente, u.usuario FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id JOIN usuarios u ON v.id_usuario = u.id $where_sql ORDER BY v.fecha DESC LIMIT $limite_por_pagina OFFSET $offset";
 $stmtVentas = $conexion->prepare($sqlVentas);
 $stmtVentas->execute($parametros);
 $ventas = $stmtVentas->fetchAll(PDO::FETCH_OBJ);
@@ -209,6 +217,33 @@ include 'includes/componente_banner.php';
                 </tbody>
             </table>
         </div>
+        
+        <?php if (isset($total_paginas) && $total_paginas > 1): 
+            $query_params = $_GET; unset($query_params['pagina']);
+            $qs = http_build_query($query_params); $qs = $qs ? "&$qs" : "";
+        ?>
+        <div class="card-footer bg-white border-top py-3">
+            <nav>
+                <ul class="pagination justify-content-center mb-0 shadow-sm">
+                    <li class="page-item <?= ($pagina_actual <= 1) ? 'disabled' : '' ?>">
+                        <a class="page-link fw-bold" href="?pagina=<?= $pagina_actual - 1 ?><?= $qs ?>">Anterior</a>
+                    </li>
+                    <?php 
+                    $inicio_pag = max(1, $pagina_actual - 2);
+                    $fin_pag = min($total_paginas, $pagina_actual + 2);
+                    for($i = $inicio_pag; $i <= $fin_pag; $i++): 
+                    ?>
+                        <li class="page-item <?= ($i == $pagina_actual) ? 'active' : '' ?>">
+                            <a class="page-link fw-bold" href="?pagina=<?= $i ?><?= $qs ?>"><?= $i ?></a>
+                        </li>
+                    <?php endfor; ?>
+                    <li class="page-item <?= ($pagina_actual >= $total_paginas) ? 'disabled' : '' ?>">
+                        <a class="page-link fw-bold" href="?pagina=<?= $pagina_actual + 1 ?><?= $qs ?>">Siguiente</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

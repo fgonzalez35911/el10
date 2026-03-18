@@ -11,14 +11,16 @@ $es_admin = ($rol_usuario <= 2);
 
 $hoy = date('Y-m-d');
 
-// 1. Suma de Ventas Brutas hoy
-$resVentas = $conexion->prepare("SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cantidad FROM ventas WHERE id_usuario = ? AND DATE(fecha) = ? AND estado = 'completada'");
-$resVentas->execute([$id_user, $hoy]);
+$rubro_actual = $conf['tipo_negocio'] ?? 'kiosco';
+
+// 1. Suma de Ventas Brutas hoy (Aislado)
+$resVentas = $conexion->prepare("SELECT COALESCE(SUM(total),0) as total, COUNT(*) as cantidad FROM ventas WHERE id_usuario = ? AND DATE(fecha) = ? AND estado = 'completada' AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$resVentas->execute([$id_user, $hoy, $rubro_actual]);
 $datosVentas = $resVentas->fetch(PDO::FETCH_ASSOC);
 
-// 2. Suma de Devoluciones hoy
-$resDevs = $conexion->prepare("SELECT COALESCE(SUM(monto_devuelto),0) as total_dev FROM devoluciones WHERE id_usuario = ? AND DATE(fecha) = ?");
-$resDevs->execute([$id_user, $hoy]);
+// 2. Suma de Devoluciones hoy (Aislado)
+$resDevs = $conexion->prepare("SELECT COALESCE(SUM(monto_devuelto),0) as total_dev FROM devoluciones WHERE id_usuario = ? AND DATE(fecha) = ? AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+$resDevs->execute([$id_user, $hoy, $rubro_actual]);
 $totalDevueltoHoy = $resDevs->fetch(PDO::FETCH_ASSOC)['total_dev'];
 
 $venta_neta = $datosVentas['total'] - $totalDevueltoHoy;
@@ -32,28 +34,47 @@ $alertas_stock = 0; $alertas_vencimiento = 0; $alertas_cumple = 0;
 
 if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_clientes', $permisos)) {
     if ($es_admin || in_array('ver_productos', $permisos)) {
-        $alertas_stock = $conexion->query("SELECT COUNT(p.id) FROM productos p JOIN categorias c ON p.id_categoria = c.id WHERE p.stock_actual <= p.stock_minimo AND p.activo = 1 AND p.tipo != 'combo'")->fetchColumn();
+        $alertas_stock = $conexion->query("SELECT COUNT(p.id) FROM productos p JOIN categorias c ON p.id_categoria = c.id WHERE p.stock_actual <= p.stock_minimo AND p.activo = 1 AND p.tipo != 'combo' AND (p.tipo_negocio = '$rubro_actual' OR p.tipo_negocio IS NULL)")->fetchColumn();
         $dias = $conexion->query("SELECT dias_alerta_vencimiento FROM configuracion WHERE id=1")->fetchColumn() ?: 30;
-        $alertas_vencimiento = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE activo=1 AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY)");
-        $alertas_vencimiento->execute([$dias]);
+        $alertas_vencimiento = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE activo=1 AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento <= DATE_ADD(CURDATE(), INTERVAL ? DAY) AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+        $alertas_vencimiento->execute([$dias, $rubro_actual]);
         $alertas_vencimiento = $alertas_vencimiento->fetchColumn();
     }
     
     if ($es_admin || in_array('ver_clientes', $permisos)) {
         $res_col = $conexion->query("SHOW COLUMNS FROM clientes LIKE 'fecha_nacimiento'");
         if($res_col && $res_col->rowCount() > 0) {
-            $q_cumple = $conexion->query("SELECT COUNT(*) FROM clientes WHERE MONTH(fecha_nacimiento)=MONTH(CURDATE()) AND DAY(fecha_nacimiento)=DAY(CURDATE())");
+            $q_cumple = $conexion->query("SELECT COUNT(*) FROM clientes WHERE MONTH(fecha_nacimiento)=MONTH(CURDATE()) AND DAY(fecha_nacimiento)=DAY(CURDATE()) AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)");
             $alertas_cumple = $q_cumple ? $q_cumple->fetchColumn() : 0;
         }
     }
 }
 
+// --- ALERTA DE TRANSFERENCIAS PENDIENTES (6 HORAS) ---
+$alertas_transferencias = 0;
+if ($es_admin || in_array('ver_transferencias', $permisos)) {
+    $stmtT = $conexion->prepare("SELECT COUNT(*) FROM ventas WHERE metodo_pago = 'Transferencia' AND estado = 'pendiente_transferencia' AND fecha <= DATE_SUB(NOW(), INTERVAL 6 HOUR) AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+    $stmtT->execute([$rubro_actual]);
+    $alertas_transferencias = $stmtT->fetchColumn();
+}
+
 // --- CONEXIÓN REAL CON ALERTA DE STOCK GLOBAL ---
 $alerta_html = "";
+
+if ($alertas_transferencias > 0) {
+    $alerta_html .= '
+    <div class="alert shadow-sm rounded-4 border-0 d-flex align-items-center mb-4 mt-2 animate__animated animate__headShake" style="background-color: #fff3cd; border-left: 5px solid #ffc107 !important;">
+        <i class="bi bi-clock-history fs-3 me-3 text-warning"></i>
+        <div>
+            <strong class="d-block text-dark">¡TRANSFERENCIAS PENDIENTES!</strong>
+            <span class="small text-dark">Tenés <b>'.$alertas_transferencias.'</b> pago(s) en espera de impacto desde hace más de 6 horas. <a href="ver_transferencias_ia.php" class="alert-link text-decoration-underline text-primary">Verificar cuenta bancaria</a></span>
+        </div>
+    </div>';
+}
 if (($conf['stock_use_global'] ?? 0) == 1) {
     $limite_global = intval($conf['stock_global_valor'] ?? 5);
-    $stmtS = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE stock_actual <= ? AND activo = 1 AND tipo != 'combo'");
-    $stmtS->execute([$limite_global]);
+    $stmtS = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE stock_actual <= ? AND activo = 1 AND tipo != 'combo' AND (tipo_negocio = ? OR tipo_negocio IS NULL)");
+    $stmtS->execute([$limite_global, $rubro_actual]);
     $cant_critica = $stmtS->fetchColumn();
 
     if ($cant_critica > 0) {
@@ -92,7 +113,7 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
     </div>
     
     <div class="col-6 col-md-4 col-xl-2">
-        <a href="reportes.php?filtro=hoy" class="widget-stat">
+        <a href="historial_ventas.php?desde=<?php echo $hoy; ?>&hasta=<?php echo $hoy; ?>" class="widget-stat">
             <span class="stat-label">Tickets</span>
             <div class="stat-value"><?php echo $datosVentas['cantidad']; ?></div>
             <i class="bi bi-receipt stat-icon"></i>
@@ -163,9 +184,9 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
         </a>
     </div>
     <div class="col">
-        <a href="categorias.php" class="card-menu">
-            <div class="icon-box-lg icon-celeste"><i class="bi bi-tags-fill"></i></div>
-            <span class="menu-title">Categorías</span><span class="menu-sub"><?php echo $conf['label_categorias']; ?></span>
+        <a href="historial_ventas.php" class="card-menu">
+            <div class="icon-box-lg icon-celeste"><i class="bi bi-receipt-cutoff"></i></div>
+            <span class="menu-title">Tickets</span><span class="menu-sub">Historial Ventas</span>
         </a>
     </div>
     <div class="col">

@@ -3,6 +3,9 @@
 session_start();
 require_once 'includes/db.php';
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 $mensaje = '';
 $tipo_mensaje = '';
 
@@ -24,6 +27,17 @@ try {
         try { $conexion->exec("ALTER TABLE revista_config ADD COLUMN $col"); } catch(Exception $e){}
     }
     $conexion->exec("CREATE TABLE IF NOT EXISTS revista_paginas (id INT PRIMARY KEY AUTO_INCREMENT, nombre_referencia VARCHAR(100), posicion INT DEFAULT 5, imagen_url VARCHAR(255), boton_texto VARCHAR(50), boton_link VARCHAR(255), activa TINYINT DEFAULT 1)");
+    
+    // PARCHE RUBROS: Asegurar que exista un registro independiente de diseño por cada rubro
+    try { $conexion->exec("ALTER TABLE revista_config ADD COLUMN tipo_negocio VARCHAR(50) DEFAULT 'kiosco'"); } catch(Exception $e){}
+    
+    $existe_cfg = $conexion->query("SELECT COUNT(*) FROM revista_config WHERE tipo_negocio = '$rubro_actual'")->fetchColumn();
+    if ($existe_cfg == 0) {
+        $max_id = $conexion->query("SELECT COALESCE(MAX(id), 0) FROM revista_config")->fetchColumn();
+        $nuevo_id = $max_id + 1;
+        $conexion->exec("INSERT INTO revista_config (id, tipo_negocio) VALUES ($nuevo_id, '$rubro_actual')");
+    }
+    
 } catch(Exception $e) {}
 
 // 1. GUARDAR CONFIGURACIÓN
@@ -43,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $ct_overlay = $_POST['contratapa_overlay'] ?? '0.5';
     $ct_qr = isset($_POST['mostrar_qr']) ? 1 : 0;
 
-    $stmt_actual = $conexion->query("SELECT img_tapa, img_contratapa FROM revista_config WHERE id=1");
+    $stmt_actual = $conexion->query("SELECT img_tapa, img_contratapa FROM revista_config WHERE tipo_negocio = '$rubro_actual'");
     $actual = $stmt_actual->fetch(PDO::FETCH_ASSOC);
     
     $ruta_tapa = $actual['img_tapa'] ?? '';
@@ -69,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
             fuente_global=?,
             contratapa_titulo=?, contratapa_texto=?, img_contratapa=?,
             contratapa_bg_color=?, contratapa_texto_color=?, contratapa_overlay=?, mostrar_qr=?
-            WHERE id=1";
+            WHERE tipo_negocio = '$rubro_actual'";
     
     $stmt = $conexion->prepare($sql);
     if($stmt->execute([
@@ -95,8 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         $ruta = $dir . time() . '_ads_' . basename($_FILES['imagen']['name']);
         
         if(move_uploaded_file($_FILES['imagen']['tmp_name'], $ruta)) {
-            $stmt = $conexion->prepare("INSERT INTO revista_paginas (nombre_referencia, posicion, imagen_url, boton_texto, boton_link) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$nombre, $posicion, $ruta, $btn_txt, $btn_link]);
+            $stmt = $conexion->prepare("INSERT INTO revista_paginas (nombre_referencia, posicion, imagen_url, boton_texto, boton_link, tipo_negocio) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$nombre, $posicion, $ruta, $btn_txt, $btn_link, $rubro_actual]);
             $mensaje = '✅ Página agregada.'; $tipo_mensaje = 'success';
         }
     }
@@ -134,8 +148,8 @@ if (isset($_GET['borrar'])) {
 }
 
 // CARGA DE DATOS
-$revista_cfg = $conexion->query("SELECT * FROM revista_config WHERE id=1")->fetch(PDO::FETCH_ASSOC) ?: [];
-$paginas = $conexion->query("SELECT * FROM revista_paginas ORDER BY posicion ASC")->fetchAll(PDO::FETCH_ASSOC);
+$revista_cfg = $conexion->query("SELECT * FROM revista_config WHERE tipo_negocio = '$rubro_actual'")->fetch(PDO::FETCH_ASSOC) ?: [];
+$paginas = $conexion->query("SELECT * FROM revista_paginas WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY posicion ASC")->fetchAll(PDO::FETCH_ASSOC);
 $total_paginas = count($paginas);
 $fuente_actual = $revista_cfg['fuente_global'] ?? 'Poppins';
 // Carga de estados para los widgets

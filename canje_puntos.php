@@ -15,6 +15,9 @@ if (!$es_admin && !in_array('ver_canje_puntos', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 $stmtCaja = $conexion->query("SELECT id FROM cajas_sesion WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1");
 $caja = $stmtCaja->fetch(PDO::FETCH_ASSOC);
 $id_caja_sesion = $caja ? $caja['id'] : 0;
@@ -27,7 +30,7 @@ if (isset($_GET['ajax_get_premios'])) {
     $stmt->execute([$id_cli]);
     $cliente = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    $premios = $conexion->query("SELECT * FROM premios WHERE activo = 1 ORDER BY puntos_necesarios ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $premios = $conexion->query("SELECT * FROM premios WHERE activo = 1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY puntos_necesarios ASC")->fetchAll(PDO::FETCH_ASSOC);
     
     echo json_encode(['cliente' => $cliente, 'premios' => $premios]);
     exit;
@@ -37,16 +40,16 @@ $mensaje_sweet = '';
 $resultados_busqueda = [];
 $cliente_seleccionado = null;
 
-$stmtW1 = $conexion->query("SELECT COUNT(*) FROM premios WHERE activo = 1");
+$stmtW1 = $conexion->query("SELECT COUNT(*) FROM premios WHERE activo = 1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)");
 $totalPremios = $stmtW1->fetchColumn();
 
-$stmtW2 = $conexion->query("SELECT COUNT(*) FROM auditoria WHERE accion = 'CANJE' AND DATE(fecha) = CURDATE()");
+$stmtW2 = $conexion->query("SELECT COUNT(*) FROM auditoria WHERE accion = 'CANJE' AND DATE(fecha) = CURDATE() AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)");
 $canjesHoy = $stmtW2->fetchColumn();
 
-$stmtW3 = $conexion->query("SELECT SUM(puntos_acumulados) FROM clientes");
+$stmtW3 = $conexion->query("SELECT SUM(puntos_acumulados) FROM clientes WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)");
 $puntosTotales = $stmtW3->fetchColumn() ?: 0;
 
-$topClientes = $conexion->query("SELECT * FROM clientes WHERE puntos_acumulados > 0 ORDER BY puntos_acumulados DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+$topClientes = $conexion->query("SELECT * FROM clientes WHERE puntos_acumulados > 0 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY puntos_acumulados DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
 
 // OBTENER CONFIGURACIÓN ACTUAL Y FIRMAS
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
@@ -60,11 +63,11 @@ $u_owner = $conexion->query("SELECT u.id, u.nombre_completo, r.nombre as nombre_
 $ownerRow = $u_owner->fetch(PDO::FETCH_ASSOC);
 
 // FILTROS DE VISTA
-$stmtMin = $conexion->query("SELECT MIN(puntos_necesarios) FROM premios WHERE activo = 1");
+$stmtMin = $conexion->query("SELECT MIN(puntos_necesarios) FROM premios WHERE activo = 1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)");
 $min_puntos_canje = $stmtMin->fetchColumn() ?: 0;
 
 $f_puntos = $_GET['rango_puntos'] ?? '';
-$cond_ranking = " WHERE puntos_acumulados > 0 ";
+$cond_ranking = " WHERE puntos_acumulados > 0 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ";
 $params_ranking = [];
 
 if ($f_puntos == 'canjeables') {
@@ -80,7 +83,7 @@ $topClientes = $conexion->query("SELECT * FROM clientes $cond_ranking ORDER BY p
 if (isset($_GET['q']) && !empty($_GET['q'])) {
     $q = trim($_GET['q']);
     $term = "%$q%";
-    $sql = "SELECT * FROM clientes WHERE nombre LIKE ? OR dni LIKE ? OR dni_cuit LIKE ? OR id = ? LIMIT 20";
+    $sql = "SELECT * FROM clientes WHERE (nombre LIKE ? OR dni LIKE ? OR dni_cuit LIKE ? OR id = ?) AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) LIMIT 20";
     $stmt = $conexion->prepare($sql);
     $stmt->execute([$term, $term, $term, $q]);
     $resultados_busqueda = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -153,7 +156,7 @@ if (isset($_POST['canjear']) && $cliente_seleccionado) {
             }
             
             $detalle_audit = $txt_log . $detalle_receta . " (-" . $premio['puntos_necesarios'] . " pts) | Cliente: " . $cliente_seleccionado['nombre'];
-            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'CANJE', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalle_audit]);
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'CANJE', ?, NOW(), ?)")->execute([$_SESSION['usuario_id'], $detalle_audit, $rubro_actual]);
             
             $conexion->commit();
             header("Location: canje_puntos.php?exito=1");
@@ -165,7 +168,7 @@ if (isset($_POST['canjear']) && $cliente_seleccionado) {
     }
 }
 
-$premios = $conexion->query("SELECT * FROM premios WHERE activo = 1 ORDER BY puntos_necesarios ASC")->fetchAll(PDO::FETCH_ASSOC);
+$premios = $conexion->query("SELECT * FROM premios WHERE activo = 1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY puntos_necesarios ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 $titulo = "Centro de Fidelización";
 $subtitulo = "Gestioná los puntos y recompensas de tus clientes.";
@@ -186,7 +189,9 @@ $widgets = [
     ['label' => 'Valor Punto', 'valor' => '$'.number_format($ratio_actual, 2), 'icono' => 'bi-currency-dollar', 'border' => 'border-info', 'icon_bg' => 'bg-info bg-opacity-20']
 ];
 
-include 'includes/layout_header.php';
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 include 'includes/componente_banner.php'; 
 ?>
 
@@ -293,7 +298,7 @@ include 'includes/componente_banner.php';
                     <div class="card-body p-0" style="max-height: 500px; overflow-y: auto;">
                         <div class="list-group list-group-flush">
                             <?php 
-                            $sql_canjes = "SELECT a.id, u.usuario as operador, u.nombre_completo, r.nombre as nombre_rol, a.detalles, a.fecha, a.id_usuario FROM auditoria a LEFT JOIN usuarios u ON a.id_usuario = u.id LEFT JOIN roles r ON u.id_rol = r.id WHERE a.accion = 'CANJE' ORDER BY a.fecha DESC LIMIT 50";
+                            $sql_canjes = "SELECT a.id, u.usuario as operador, u.nombre_completo, r.nombre as nombre_rol, a.detalles, a.fecha, a.id_usuario FROM auditoria a LEFT JOIN usuarios u ON a.id_usuario = u.id LEFT JOIN roles r ON u.id_rol = r.id WHERE a.accion = 'CANJE' AND (a.tipo_negocio = '$rubro_actual' OR a.tipo_negocio IS NULL) ORDER BY a.fecha DESC LIMIT 50";
                             $res_canjes = $conexion->query($sql_canjes);
                             $ultimos_canjes = $res_canjes ? $res_canjes->fetchAll(PDO::FETCH_ASSOC) : [];
                             

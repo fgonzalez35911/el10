@@ -5,6 +5,9 @@ require_once 'includes/db.php';
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
 
@@ -34,8 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($accion === 'crear' && !empty($nombre) && $peso >= 0) {
-        $stmt = $conexion->prepare("INSERT INTO taras_predefinidas (nombre, peso, precio_costo, precio_venta, cobrar, imagen_url) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$nombre, $peso, $costo, $venta, $cobrar, $imagen_url]);
+        $stmt = $conexion->prepare("INSERT INTO taras_predefinidas (nombre, peso, precio_costo, precio_venta, cobrar, imagen_url, tipo_negocio) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$nombre, $peso, $costo, $venta, $cobrar, $imagen_url, $rubro_actual]);
         header("Location: gestionar_taras.php?msg=creado"); exit;
     }
     
@@ -67,7 +70,7 @@ $buscar = trim($_GET['buscar'] ?? '');
 $f_cobro = $_GET['estado_cobro'] ?? '';
 
 // OBTENER LISTA DE TARAS
-$sql = "SELECT * FROM taras_predefinidas WHERE 1=1";
+$sql = "SELECT * FROM taras_predefinidas WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)";
 $params = [];
 
 if (!empty($buscar)) {
@@ -86,11 +89,13 @@ $stmt->execute($params);
 $taras = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // CONTAR COBRABLES (Global, sin filtros, para el widget)
-$todas_taras = $conexion->query("SELECT cobrar FROM taras_predefinidas")->fetchAll(PDO::FETCH_ASSOC);
+$todas_taras = $conexion->query("SELECT cobrar FROM taras_predefinidas WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchAll(PDO::FETCH_ASSOC);
 $cobrables = 0;
 foreach($todas_taras as $t) { if($t['cobrar'] == 1) $cobrables++; }
 
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 
 // --- DEFINICIÓN DEL BANNER DINÁMICO ESTANDARIZADO ---
 $titulo = "Administrador de Envases";
@@ -133,37 +138,44 @@ include 'includes/componente_banner.php';
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm rounded-4 mb-4">
-        <div class="card-body p-3">
-            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end w-100">
-                <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
-                
-                <div class="flex-grow-1" style="min-width: 200px;">
-                    <label class="small fw-bold text-muted text-uppercase mb-1" style="font-size: 0.65rem;">Estado de Cobro</label>
-                    <select name="estado_cobro" class="form-select form-select-sm border-light-subtle fw-bold">
-                        <option value="">Todos los envases</option>
-                        <option value="1" <?php echo ($f_cobro == '1') ? 'selected' : ''; ?>>Solo los que se cobran</option>
-                        <option value="0" <?php echo ($f_cobro == '0') ? 'selected' : ''; ?>>Solo los gratuitos</option>
-                    </select>
-                </div>
-                
-                <div class="flex-grow-0 d-flex gap-2 mt-2 mt-md-0">
-                    <button type="submit" class="btn btn-primary btn-sm fw-bold rounded-3 shadow-sm px-3" style="height: 31px;">
-                        <i class="bi bi-funnel-fill me-1"></i> FILTRAR
-                    </button>
-                    <a href="gestionar_taras.php" class="btn btn-light btn-sm fw-bold rounded-3 border px-3" style="height: 31px; display: flex; align-items: center;">
-                        <i class="bi bi-trash3-fill me-1"></i> LIMPIAR
-                    </a>
-                </div>
-            </form>
+    <style>
+        .filter-bar.sticky-desktop { position: sticky; top: 65px; z-index: 1000; background: #fff; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        @media (max-width: 768px) { 
+            .filter-bar.sticky-desktop { top: 10px; position: relative; padding: 10px; } 
+            .filter-content-wrapper { display: none; flex-direction: column; gap: 10px; padding-top: 15px; }
+            .filter-content-wrapper.show { display: flex; }
+            .search-group, .filter-select { width: 100% !important; }
+        }
+        @media (min-width: 769px) {
+            .filter-content-wrapper { display: flex !important; width: 100%; gap: 10px; align-items: center; }
+            .btn-toggle-filters { display: none; }
+        }
+    </style>
+
+    <div class="filter-bar sticky-desktop rounded-4 p-3">
+        <div class="d-flex gap-2 w-100 d-md-none mb-2">
+            <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm" type="button" onclick="document.getElementById('wrapperFiltros').classList.toggle('show');">
+                <i class="bi bi-funnel-fill"></i> MOSTRAR FILTROS
+            </button>
         </div>
+        <form method="GET" id="wrapperFiltros" class="filter-content-wrapper mt-md-0 mt-2">
+            <input type="hidden" name="buscar" value="<?php echo htmlspecialchars($buscar); ?>">
+            <select name="estado_cobro" class="filter-select flex-grow-1" onchange="this.form.submit()">
+                <option value="">📦 Todos los envases</option>
+                <option value="1" <?php echo ($f_cobro == '1') ? 'selected' : ''; ?>>💲 Solo los que se cobran</option>
+                <option value="0" <?php echo ($f_cobro == '0') ? 'selected' : ''; ?>>🆓 Solo los gratuitos</option>
+            </select>
+            <a href="gestionar_taras.php" class="btn btn-light fw-bold rounded-3 border px-3 text-muted" style="height: 42px; display: flex; align-items: center;">
+                <i class="bi bi-trash3-fill"></i>
+            </a>
+        </form>
     </div>
 
     <div class="alert py-2 small mb-4 text-center fw-bold border-0 shadow-sm rounded-3" style="background-color: #e9f2ff; color: #102A57;">
         <i class="bi bi-hand-index-thumb-fill me-1"></i> Toca o haz clic en un envase para ver la ficha técnica y opciones
     </div>
 
-    <div class="row g-4" id="gridTaras">
+    <div class="row g-4 pb-5" id="gridProductos">
         <?php if(count($taras) > 0): ?>
             <?php foreach($taras as $t): 
                 $img = !empty($t['imagen_url']) ? $t['imagen_url'] : '';
@@ -171,7 +183,7 @@ include 'includes/componente_banner.php';
                 $jsonTara = htmlspecialchars(json_encode($t), ENT_QUOTES, 'UTF-8');
             ?>
             <div class="col-12 col-md-6 col-xl-3 item-grid">
-                <div class="card-prod h-100" onclick="verFichaTara(<?php echo $jsonTara; ?>)" style="cursor:pointer; position:relative; overflow:hidden;">
+                <div class="card-prod h-100 shadow-sm" onclick="verFichaTara(<?php echo $jsonTara; ?>)" style="cursor:pointer; position:relative; overflow:hidden; border-radius: 12px; background: #fff;">
                     <?php if($se_cobra): ?>
                         <div class="badge bg-danger position-absolute top-0 end-0 m-2 shadow-sm" style="z-index: 2;"><i class="bi bi-currency-dollar"></i> SE COBRA</div>
                     <?php endif; ?>
@@ -209,6 +221,50 @@ include 'includes/componente_banner.php';
                 <h5 class="mt-3 text-muted">No se encontraron envases con esos filtros.</h5>
             </div>
         <?php endif; ?>
+    </div>
+
+    <div id="vistaListaGenerica" class="d-none mt-2 pb-5">
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="bg-light text-muted small text-uppercase">
+                        <tr>
+                            <th class="ps-4">ENVASE</th>
+                            <th class="text-center">PESO (Kg)</th>
+                            <th class="text-center d-none d-md-table-cell">COBRO</th>
+                            <th class="text-end pe-4">PRECIO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($taras as $t): 
+                            $se_cobra = isset($t['cobrar']) && $t['cobrar'] == 1;
+                            $jsonTara = htmlspecialchars(json_encode($t), ENT_QUOTES, 'UTF-8');
+                        ?>
+                        <tr style="cursor: pointer;" onclick="verFichaTara(<?php echo $jsonTara; ?>)">
+                            <td class="ps-4 fw-bold text-dark py-3">
+                                <i class="bi bi-box-seam me-2 text-primary opacity-75"></i> <?php echo htmlspecialchars($t['nombre']); ?>
+                            </td>
+                            <td class="text-center fw-bold text-primary"><?php echo number_format($t['peso'], 3, '.', ''); ?></td>
+                            <td class="text-center d-none d-md-table-cell">
+                                <?php if($se_cobra): ?>
+                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">SE COBRA</span>
+                                <?php else: ?>
+                                    <span class="badge bg-light text-muted border">GRATIS</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-end pe-4 fw-bold">
+                                <?php if($se_cobra): ?>
+                                    <span class="text-success">$<?php echo number_format($t['precio_venta'] ?? 0, 2, ',', '.'); ?></span>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 

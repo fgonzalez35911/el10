@@ -8,9 +8,12 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) {
     header("Location: dashboard.php"); exit; 
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // CARGA DE DATOS PARA FILTROS Y WIDGETS
-$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1")->fetchAll(PDO::FETCH_OBJ);
-$proveedores = $conexion->query("SELECT * FROM proveedores ORDER BY empresa ASC")->fetchAll(PDO::FETCH_OBJ);
+$categorias = $conexion->query("SELECT * FROM categorias WHERE activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchAll(PDO::FETCH_OBJ);
+$proveedores = $conexion->query("SELECT * FROM proveedores WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY empresa ASC")->fetchAll(PDO::FETCH_OBJ);
 $total_cats = count($categorias);
 $total_provs = count($proveedores);
 
@@ -31,8 +34,8 @@ $productos_filtrados = [];
 // 1. CARGAR PRODUCTOS SEGÚN FILTRO
 if ($id_filtro) {
     $where = ($tipo_filtro == 'proveedor') ? "id_proveedor = ?" : "id_categoria = ?";
-    $stmt = $conexion->prepare("SELECT * FROM productos WHERE $where AND activo = 1 ORDER BY descripcion ASC");
-    $stmt->execute([$id_filtro]);
+    $stmt = $conexion->prepare("SELECT * FROM productos WHERE $where AND activo = 1 AND (tipo_negocio = ? OR tipo_negocio IS NULL) ORDER BY descripcion ASC");
+    $stmt->execute([$id_filtro, $rubro_actual]);
     $productos_filtrados = $stmt->fetchAll(PDO::FETCH_OBJ);
 }
 
@@ -58,9 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['confirmar_aumento'])) 
             $st->execute([$id_h]);
             $nombre_grupo = $st->fetchColumn() ?: "ID #$id_h";
 
-            $detalles = "Aumento Masivo del $porcentaje% en " . strtoupper($accion) . " aplicado a " . count($ids) . " productos del grupo " . strtoupper($tipo_h) . ": " . $nombre_grupo;
-            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'INFLACION', ?, NOW())")->execute([$_SESSION['usuario_id'], $detalles]);
-            $conexion->prepare("INSERT INTO historial_inflacion (fecha, porcentaje, accion, grupo_afectado, cantidad_productos, id_usuario) VALUES (NOW(), ?, ?, ?, ?, ?)")->execute([$porcentaje, strtoupper($accion), $nombre_grupo, count($ids), $_SESSION['usuario_id']]);         
+           $detalles = "Aumento Masivo del $porcentaje% en " . strtoupper($accion) . " aplicado a " . count($ids) . " productos del grupo " . strtoupper($tipo_h) . ": " . $nombre_grupo;
+            $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha, tipo_negocio) VALUES (?, 'INFLACION', ?, NOW(), ?)")->execute([$_SESSION['usuario_id'], $detalles, $rubro_actual]);
+            $conexion->prepare("INSERT INTO historial_inflacion (fecha, porcentaje, accion, grupo_afectado, cantidad_productos, id_usuario, tipo_negocio) VALUES (NOW(), ?, ?, ?, ?, ?, ?)")->execute([$porcentaje, strtoupper($accion), $nombre_grupo, count($ids), $_SESSION['usuario_id'], $rubro_actual]);
 
             $factor = 1 + ($porcentaje / 100);
             if ($accion == 'costo') {

@@ -52,11 +52,13 @@ if (isset($_GET['ajax_detalle'])) {
 // === B. LÓGICA DE CARGA NORMAL ===
 $color_sistema = '#102A57';
 $conf = [];
+$rubro_actual = 'kiosco';
 try {
     $resConf = $conexion->query("SELECT * FROM configuracion WHERE id=1");
     if ($resConf) {
         $conf = $resConf->fetch(PDO::FETCH_ASSOC);
         if (isset($conf['color_barra_nav'])) $color_sistema = $conf['color_barra_nav'];
+        if (isset($conf['tipo_negocio'])) $rubro_actual = $conf['tipo_negocio'];
     }
 } catch (Exception $e) { }
 
@@ -65,7 +67,7 @@ $stmtUsu = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario A
 $usuarios_lista = $stmtUsu->fetchAll(PDO::FETCH_ASSOC);
 
 // OBTENER CLIENTES PARA EL FILTRO
-$stmtCli = $conexion->query("SELECT id, nombre FROM clientes ORDER BY nombre ASC");
+$stmtCli = $conexion->query("SELECT id, nombre FROM clientes WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY nombre ASC");
 $clientes_lista = $stmtCli->fetchAll(PDO::FETCH_ASSOC);
 
 // FILTROS
@@ -75,7 +77,7 @@ $buscar = $_GET['buscar'] ?? '';
 $f_cliente = $_GET['id_cliente'] ?? '';
 $f_usuario = $_GET['id_usuario'] ?? '';
 
-$condiciones = ["DATE(c.fecha_apertura) >= ?", "DATE(c.fecha_apertura) <= ?"];
+$condiciones = ["DATE(c.fecha_apertura) >= ?", "DATE(c.fecha_apertura) <= ?", "(c.tipo_negocio = '$rubro_actual' OR c.tipo_negocio IS NULL)"];
 $parametros = [$desde, $hasta];
 
 if (!empty($buscar)) {
@@ -93,12 +95,36 @@ if ($f_cliente !== '') {
 }
 if ($f_usuario !== '') { $condiciones[] = "c.id_usuario = ?"; $parametros[] = $f_usuario; }
 
-$sql = "SELECT c.*, u.usuario, u.nombre_completo FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE " . implode(" AND ", $condiciones) . " ORDER BY c.id DESC";
+// --- MOTOR DE PAGINACIÓN ---
+$pagina_actual = isset($_GET['pagina']) ? max(1, (int)$_GET['pagina']) : 1;
+$limite_por_pagina = 30;
+$offset = ($pagina_actual - 1) * $limite_por_pagina;
+
+$sql_count = "SELECT COUNT(*) FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE " . implode(" AND ", $condiciones);
+$stmt_count = $conexion->prepare($sql_count);
+$stmt_count->execute($parametros);
+$total_registros = $stmt_count->fetchColumn();
+$total_paginas = ceil($total_registros / $limite_por_pagina);
+
+$sql = "SELECT c.*, u.usuario, u.nombre_completo FROM cajas_sesion c JOIN usuarios u ON c.id_usuario = u.id WHERE " . implode(" AND ", $condiciones) . " ORDER BY c.id DESC LIMIT $limite_por_pagina OFFSET $offset";
 $stmt = $conexion->prepare($sql);
 $stmt->execute($parametros);
 $cajas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Cálculo Global (sin límite)
+$sql_calc = "SELECT total_ventas, diferencia, estado FROM cajas_sesion c WHERE " . implode(" AND ", $condiciones);
+$stmt_calc = $conexion->prepare($sql_calc);
+$stmt_calc->execute($parametros);
+$cajas_calc = $stmt_calc->fetchAll(PDO::FETCH_ASSOC);
+
 $total_ventas_hist = 0; $dif_neta = 0; $cajas_con_error = 0;
+foreach($cajas_calc as $c_tot) {
+    if($c_tot['estado'] == 'cerrada') {
+        $total_ventas_hist += floatval($c_tot['total_ventas']);
+        $dif_neta += floatval($c_tot['diferencia']);
+        if(abs(floatval($c_tot['diferencia'])) > 0.01) $cajas_con_error++;
+    }
+}
 foreach($cajas as $c) {
     if($c['estado'] == 'cerrada') {
         $total_ventas_hist += floatval($c['total_ventas']);
@@ -267,6 +293,33 @@ include 'includes/componente_banner.php';
                 </tbody>
             </table>
         </div>
+        
+        <?php if (isset($total_paginas) && $total_paginas > 1): 
+            $query_params = $_GET; unset($query_params['pagina']);
+            $qs = http_build_query($query_params); $qs = $qs ? "&$qs" : "";
+        ?>
+        <div class="card-footer bg-white border-top py-3">
+            <nav>
+                <ul class="pagination justify-content-center mb-0 shadow-sm">
+                    <li class="page-item <?= ($pagina_actual <= 1) ? 'disabled' : '' ?>">
+                        <a class="page-link fw-bold" href="?pagina=<?= $pagina_actual - 1 ?><?= $qs ?>">Anterior</a>
+                    </li>
+                    <?php 
+                    $inicio_pag = max(1, $pagina_actual - 2);
+                    $fin_pag = min($total_paginas, $pagina_actual + 2);
+                    for($i = $inicio_pag; $i <= $fin_pag; $i++): 
+                    ?>
+                        <li class="page-item <?= ($i == $pagina_actual) ? 'active' : '' ?>">
+                            <a class="page-link fw-bold" href="?pagina=<?= $i ?><?= $qs ?>"><?= $i ?></a>
+                        </li>
+                    <?php endfor; ?>
+                    <li class="page-item <?= ($pagina_actual >= $total_paginas) ? 'disabled' : '' ?>">
+                        <a class="page-link fw-bold" href="?pagina=<?= $pagina_actual + 1 ?><?= $qs ?>">Siguiente</a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

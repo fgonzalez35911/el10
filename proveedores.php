@@ -11,13 +11,16 @@ if (!$es_admin && !in_array('ver_proveedores', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // --- LÓGICA AJAX PARA PEDIDO SUGERIDO (NUEVA FUNCIÓN) ---
 if (isset($_GET['ajax_sugerido'])) {
     header('Content-Type: application/json');
     $id_prov = intval($_GET['ajax_sugerido']);
     // Busca productos de este proveedor cuyo stock esté por debajo del mínimo, o si no hay mínimo, menor a 5.
-    $stmt = $conexion->prepare("SELECT id, descripcion, stock_actual, stock_minimo FROM productos WHERE id_proveedor = ? AND activo = 1 AND (stock_actual <= stock_minimo OR stock_actual < 5) ORDER BY descripcion ASC");
-    $stmt->execute([$id_prov]);
+    $stmt = $conexion->prepare("SELECT id, descripcion, stock_actual, stock_minimo FROM productos WHERE id_proveedor = ? AND activo = 1 AND (stock_actual <= stock_minimo OR stock_actual < 5) AND (tipo_negocio = ? OR tipo_negocio IS NULL) ORDER BY descripcion ASC");
+    $stmt->execute([$id_prov, $rubro_actual]);
     $prods = $stmt->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode($prods);
     exit;
@@ -57,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['datos_pedido'])) {
                 }
                 header("Location: proveedores.php?msg=actualizado"); exit;
             } else {
-                $conexion->prepare("INSERT INTO proveedores (empresa, contacto, telefono, email) VALUES (?, ?, ?, ?)")->execute([$empresa, $contacto, $telefono_final, $email]);
+                $conexion->prepare("INSERT INTO proveedores (empresa, contacto, telefono, email, tipo_negocio) VALUES (?, ?, ?, ?, ?)")->execute([$empresa, $contacto, $telefono_final, $email, $rubro_actual]);
                 $d_aud = "Proveedor Nuevo: " . $empresa; 
                 $conexion->prepare("INSERT INTO auditoria (id_usuario, accion, detalles, fecha) VALUES (?, 'PROVEEDOR_NUEVO', ?, NOW())")->execute([$_SESSION['usuario_id'], $d_aud]);
                 header("Location: proveedores.php?msg=creado"); exit;
@@ -79,10 +82,12 @@ if (isset($_GET['borrar'])) {
     header("Location: proveedores.php?msg=eliminado"); exit;
 }
 
-$proveedores = $conexion->query("SELECT p.*, (SELECT COUNT(*) FROM productos WHERE id_proveedor = p.id AND activo=1) as cant_productos FROM proveedores p ORDER BY p.empresa ASC")->fetchAll(PDO::FETCH_ASSOC);
-$deuda_global = $conexion->query("SELECT SUM(CASE WHEN tipo = 'compra' THEN monto ELSE -monto END) FROM movimientos_proveedores")->fetchColumn() ?: 0;
+$proveedores = $conexion->query("SELECT p.*, (SELECT COUNT(*) FROM productos WHERE id_proveedor = p.id AND activo=1 AND (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)) as cant_productos FROM proveedores p WHERE (p.tipo_negocio = '$rubro_actual' OR p.tipo_negocio IS NULL) ORDER BY p.empresa ASC")->fetchAll(PDO::FETCH_ASSOC);
+$deuda_global = $conexion->query("SELECT SUM(CASE WHEN tipo = 'compra' THEN monto ELSE -monto END) FROM movimientos_proveedores WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)")->fetchColumn() ?: 0;
 
-require_once 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 
 // --- BANNER DINÁMICO ESTANDARIZADO ---
 $titulo = "Mis Proveedores";

@@ -39,10 +39,11 @@ if($ownerRow && file_exists("img/firmas/usuario_{$ownerRow['id']}.png")) {
 
 $conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
+$rubro_actual = $conf['tipo_negocio'] ?? 'kiosco';
 
 // OBTENER USUARIOS Y CLIENTES PARA EL FILTRO
 $usuarios_lista = $conexion->query("SELECT id, usuario FROM usuarios ORDER BY usuario ASC")->fetchAll(PDO::FETCH_ASSOC);
-$clientes_lista = $conexion->query("SELECT id, nombre FROM clientes ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
+$clientes_lista = $conexion->query("SELECT id, nombre FROM clientes WHERE (tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL) ORDER BY nombre ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 // --- FILTROS ---
 $desde = $_GET['desde'] ?? date('Y-m-d', strtotime('-2 months'));
@@ -77,19 +78,20 @@ if (isset($_POST['accion']) && $_POST['accion'] == 'confirmar_reintegro') {
     header('Content-Type: application/json');
     try {
         $conexion->beginTransaction();
-        $stmt = $conexion->prepare("INSERT INTO devoluciones (id_venta_original, id_producto, cantidad, monto_devuelto, motivo, fecha, id_usuario) VALUES (?, ?, ?, ?, ?, NOW(), ?)");
-        $stmt->execute([$_POST['id_v'], $_POST['id_p'], $_POST['cant'], $_POST['monto'], $_POST['motivo'], $user_id]);
+        $stmt = $conexion->prepare("INSERT INTO devoluciones (id_venta_original, id_producto, cantidad, monto_devuelto, motivo, fecha, id_usuario, tipo_negocio) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)");
+        $stmt->execute([$_POST['id_v'], $_POST['id_p'], $_POST['cant'], $_POST['monto'], $_POST['motivo'], $user_id, $rubro_actual]);
         if ($_POST['motivo'] === 'Reingreso') {
             $conexion->prepare("UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?")->execute([$_POST['cant'], $_POST['id_p']]);
         } else {
-            $conexion->prepare("INSERT INTO mermas (id_producto, cantidad, motivo, fecha, id_usuario) VALUES (?, ?, ?, NOW(), ?)")->execute([$_POST['id_p'], $_POST['cant'], "Devolución #".$_POST['id_v'], $user_id]);
+            $conexion->prepare("INSERT INTO mermas (id_producto, cantidad, motivo, fecha, id_usuario, tipo_negocio) VALUES (?, ?, ?, NOW(), ?, ?)")->execute([$_POST['id_p'], $_POST['cant'], "Devolución #".$_POST['id_v'], $user_id, $rubro_actual]);
         }
         $stmtCaja = $conexion->prepare("SELECT id FROM cajas_sesion WHERE id_usuario = ? AND estado = 'abierta'");
         $stmtCaja->execute([$user_id]);
         $caja = $stmtCaja->fetch(PDO::FETCH_ASSOC);
         if ($caja) {
             $descG = "Reintegro Ticket #" . $_POST['id_v'] . " (" . $_POST['cant'] . " u.)";
-            $conexion->prepare("INSERT INTO gastos (descripcion, monto, categoria, fecha, id_usuario, id_caja_sesion) VALUES (?, ?, 'Devoluciones', NOW(), ?, ?)")->execute([$descG, $_POST['monto'], $user_id, $caja['id']]);
+            $conexion->prepare("INSERT INTO gastos (descripcion, monto, categoria, fecha, id_usuario, id_caja_sesion, tipo_negocio) VALUES (?, ?, 'Devoluciones', NOW(), ?, ?, ?)")->execute([$descG, $_POST['monto'], $user_id, $caja['id'], $rubro_actual]);
+        
         }
         $conexion->commit(); 
         echo json_encode(['status' => 'success']);
@@ -101,18 +103,26 @@ if (isset($_POST['accion']) && $_POST['accion'] == 'confirmar_reintegro') {
 }
 
 // --- CONSULTAS ---
-$condV = ["v.estado='completada'", "DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?"];
+$condV = ["v.estado='completada'", "DATE(v.fecha) >= ?", "DATE(v.fecha) <= ?", "(v.tipo_negocio = '$rubro_actual' OR v.tipo_negocio IS NULL)"];
 $paramsV = [$desde, $hasta];
 if(!empty($buscar)) { if(is_numeric($buscar)) { $condV[] = "v.id = ?"; $paramsV[] = intval($buscar); } else { $condV[] = "c.nombre LIKE ?"; $paramsV[] = "%$buscar%"; } }
 if($f_cliente !== '') { $condV[] = "v.id_cliente = ?"; $paramsV[] = $f_cliente; }
 
+// Paginación Lado Izquierdo (Ventas)
+$pag_v = isset($_GET['pag_v']) ? max(1, (int)$_GET['pag_v']) : 1;
+$limit_v = 15;
+$offset_v = ($pag_v - 1) * $limit_v;
+$sqlCountV = "SELECT COUNT(*) FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condV);
+$stmtCountV = $conexion->prepare($sqlCountV); $stmtCountV->execute($paramsV);
+$tot_v = $stmtCountV->fetchColumn(); $tot_pag_v = ceil($tot_v / $limit_v);
+
 $sqlV = "SELECT v.id, v.total, v.fecha, c.nombre, 
             (SELECT COUNT(*) FROM devoluciones d WHERE d.id_venta_original = v.id) as tiene_dev 
          FROM ventas v LEFT JOIN clientes c ON v.id_cliente = c.id 
-         WHERE " . implode(" AND ", $condV) . " ORDER BY v.fecha DESC LIMIT 15";
+         WHERE " . implode(" AND ", $condV) . " ORDER BY v.fecha DESC LIMIT $limit_v OFFSET $offset_v";
 $stmtV = $conexion->prepare($sqlV); $stmtV->execute($paramsV); $ventas_lista = $stmtV->fetchAll(PDO::FETCH_ASSOC);
 
-$condH = ["DATE(d.fecha) >= ?", "DATE(d.fecha) <= ?"];
+$condH = ["DATE(d.fecha) >= ?", "DATE(d.fecha) <= ?", "(d.tipo_negocio = '$rubro_actual' OR d.tipo_negocio IS NULL)"];
 $paramsH = [$desde, $hasta];
 if(!empty($buscar)) { 
     if(is_numeric($buscar)) { $condH[] = "v.id = ?"; $paramsH[] = intval($buscar); } 
@@ -121,9 +131,21 @@ if(!empty($buscar)) {
 if($f_cliente !== '') { $condH[] = "v.id_cliente = ?"; $paramsH[] = $f_cliente; }
 if($f_usuario !== '') { $condH[] = "d.id_usuario = ?"; $paramsH[] = $f_usuario; }
 
-$sqlH = "SELECT d.*, v.id as ticket_id, p.descripcion as producto, c.nombre as cliente FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id JOIN productos p ON d.id_producto = p.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condH) . " ORDER BY d.fecha DESC LIMIT 15";
+// Paginación Lado Derecho (Historial Devoluciones)
+$pag_h = isset($_GET['pag_h']) ? max(1, (int)$_GET['pag_h']) : 1;
+$limit_h = 20;
+$offset_h = ($pag_h - 1) * $limit_h;
+$sqlCountH = "SELECT COUNT(*) FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condH);
+$stmtCountH = $conexion->prepare($sqlCountH); $stmtCountH->execute($paramsH);
+$tot_h = $stmtCountH->fetchColumn(); $tot_pag_h = ceil($tot_h / $limit_h);
+
+$sqlH = "SELECT d.*, v.id as ticket_id, p.descripcion as producto, c.nombre as cliente FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id JOIN productos p ON d.id_producto = p.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condH) . " ORDER BY d.fecha DESC LIMIT $limit_h OFFSET $offset_h";
 $stmtH = $conexion->prepare($sqlH); $stmtH->execute($paramsH); $historial = $stmtH->fetchAll(PDO::FETCH_ASSOC);
-$totalReintegros = array_sum(array_column($historial, 'monto_devuelto'));
+
+// Cálculo Global Total de Devoluciones (sin límite)
+$sqlH_tot = "SELECT SUM(d.monto_devuelto) FROM devoluciones d JOIN ventas v ON d.id_venta_original = v.id LEFT JOIN clientes c ON v.id_cliente = c.id WHERE " . implode(" AND ", $condH);
+$stmtH_tot = $conexion->prepare($sqlH_tot); $stmtH_tot->execute($paramsH);
+$totalReintegros = $stmtH_tot->fetchColumn() ?: 0;
 
 $query_filtros = !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : "desde=$desde&hasta=$hasta";
 
@@ -244,8 +266,22 @@ include 'includes/componente_banner.php';
                         </button>
                     <?php endforeach; ?>
                 </div>
+                
+                <?php if ($tot_pag_v > 1): 
+                    $qp = $_GET; unset($qp['pag_v']); $qs = http_build_query($qp); $qs = $qs ? "&$qs" : "";
+                ?>
+                <div class="card-footer bg-white border-top py-2 d-flex justify-content-center">
+                    <div class="btn-group btn-group-sm shadow-sm" role="group">
+                        <a href="?pag_v=<?= $pag_v - 1 ?><?= $qs ?>" class="btn btn-light border <?= ($pag_v <= 1) ? 'disabled' : '' ?>"><i class="bi bi-chevron-left"></i></a>
+                        <span class="btn btn-light fw-bold disabled border"><?= $pag_v ?> / <?= $tot_pag_v ?></span>
+                        <a href="?pag_v=<?= $pag_v + 1 ?><?= $qs ?>" class="btn btn-light border <?= ($pag_v >= $tot_pag_v) ? 'disabled' : '' ?>"><i class="bi bi-chevron-right"></i></a>
+                    </div>
+                </div>
+                <?php endif; ?>
+
             </div>
         </div>
+        
         <div class="col-md-8">
             <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
                 <div class="card-header bg-dark py-3 border-0"><h6 class="fw-bold mb-0 text-white">HISTORIAL DE DEVOLUCIONES</h6></div>
@@ -257,6 +293,30 @@ include 'includes/componente_banner.php';
                         </div>
                     <?php endforeach; ?>
                 </div>
+                
+                <?php if ($tot_pag_h > 1): 
+                    $qp = $_GET; unset($qp['pag_h']); $qs = http_build_query($qp); $qs = $qs ? "&$qs" : "";
+                ?>
+                <div class="card-footer bg-white border-top py-3">
+                    <ul class="pagination pagination-sm justify-content-center mb-0 shadow-sm">
+                        <li class="page-item <?= ($pag_h <= 1) ? 'disabled' : '' ?>">
+                            <a class="page-link fw-bold" href="?pag_h=<?= $pag_h - 1 ?><?= $qs ?>">Ant.</a>
+                        </li>
+                        <?php 
+                        $ini_h = max(1, $pag_h - 2); $fin_h = min($tot_pag_h, $pag_h + 2);
+                        for($i = $ini_h; $i <= $fin_h; $i++): 
+                        ?>
+                            <li class="page-item <?= ($i == $pag_h) ? 'active' : '' ?>">
+                                <a class="page-link fw-bold" href="?pag_h=<?= $i ?><?= $qs ?>"><?= $i ?></a>
+                            </li>
+                        <?php endfor; ?>
+                        <li class="page-item <?= ($pag_h >= $tot_pag_h) ? 'disabled' : '' ?>">
+                            <a class="page-link fw-bold" href="?pag_h=<?= $pag_h + 1 ?><?= $qs ?>">Sig.</a>
+                        </li>
+                    </ul>
+                </div>
+                <?php endif; ?>
+
             </div>
         </div>
     </div>

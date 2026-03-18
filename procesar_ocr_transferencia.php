@@ -188,6 +188,17 @@ if (isset($_POST['imagenes_base64']) || isset($_POST['imagen_base64'])) {
             if ($nom_r === 'No detectado' || $nom_r === '') $nom_r = $candidatos[1] ?? 'No detectado';
         }
 
+        // --- CONTROL DE LISTA NEGRA (ANTIFRAUDE) ---
+        if ($cbu_e !== '---' && $cbu_e !== '') {
+            $stmt_black = $conn->prepare("SELECT id FROM lista_negra_cbu WHERE cbu = ?");
+            $stmt_black->bind_param("s", $cbu_e);
+            $stmt_black->execute();
+            if ($stmt_black->get_result()->num_rows > 0) {
+                echo "BLOQUEADO: El CBU detectado ($cbu_e) está en la Lista Negra por fraude.";
+                exit;
+            }
+        }
+
         // --- 5. GUARDAR LA PRIMER FOTO EN FÍSICO ---
         $image_parts = explode(";base64,", $fotos[0]);
         $image_type_aux = explode("image/", $image_parts[0]);

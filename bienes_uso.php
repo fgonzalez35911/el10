@@ -10,6 +10,9 @@ else { die("Error crítico: No se encuentra db.php"); }
 
 if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
+$conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
+
 // --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
@@ -62,8 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['nombre'])) {
             $conexion->prepare($sql)->execute($params);
             $res = 'actualizado';
         } else {
-            $sql = "INSERT INTO bienes_uso (nombre, marca, modelo, numero_serie, estado, ubicacion, fecha_compra, costo_compra, notas, foto) VALUES (?,?,?,?,?,?,?,?,?,?)";
-            $conexion->prepare($sql)->execute([$nombre, $marca, $modelo, $serie, $estado, $ubicacion, $fecha, $costo, $notas, $ruta_foto]);
+            $sql = "INSERT INTO bienes_uso (nombre, marca, modelo, numero_serie, estado, ubicacion, fecha_compra, costo_compra, notas, foto, tipo_negocio) VALUES (?,?,?,?,?,?,?,?,?,?,?)";
+            $conexion->prepare($sql)->execute([$nombre, $marca, $modelo, $serie, $estado, $ubicacion, $fecha, $costo, $notas, $ruta_foto, $rubro_actual]);
             $res = 'creado';
         }
         header("Location: bienes_uso.php?msg=$res"); exit;
@@ -74,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['nombre'])) {
 $desde = $_GET['desde'] ?? date('Y-01-01', strtotime('-5 years'));
 $hasta = $_GET['hasta'] ?? date('Y-12-31');
 $buscar = trim($_GET['buscar'] ?? '');
-$cond = ["((DATE(fecha_compra) >= ? AND DATE(fecha_compra) <= ?) OR fecha_compra IS NULL)"];
+$cond = ["((DATE(fecha_compra) >= ? AND DATE(fecha_compra) <= ?) OR fecha_compra IS NULL)", "(tipo_negocio = '$rubro_actual' OR tipo_negocio IS NULL)"];
 $params = [$desde, $hasta];
 if(!empty($buscar)) {
     $cond[] = "(nombre LIKE ? OR marca LIKE ? OR numero_serie LIKE ? OR ubicacion LIKE ?)";
@@ -95,7 +98,9 @@ foreach($activos as &$a) {
 }
 unset($a);
 
-include 'includes/layout_header.php'; 
+$conf_color_sis = $conexion->query("SELECT color_barra_nav FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+$color_sistema = $conf_color_sis['color_barra_nav'] ?? '#102A57';
+require_once 'includes/layout_header.php';
 
 // Banner Dinámico
 $titulo = "Mis Activos";

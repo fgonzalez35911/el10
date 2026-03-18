@@ -13,7 +13,7 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 $rol_usuario = $_SESSION['rol'] ?? 3;
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($rol_usuario <= 2);
-$conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+
 
 // --- 1. PROCESAR GUARDADO CONFIGURACIÓN GENERAL ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
@@ -145,8 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_personalizacio
     header("Location: configuracion.php?msg=guardado"); exit;
 }
 
-// LECTURA DE DATOS
-$conf = $conexion->query("SELECT * FROM configuracion LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+// LECTURA DE DATOS (RESTAURADA)
+$conf = $conexion->query("SELECT * FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $afip = $conexion->query("SELECT * FROM afip_config WHERE id=1")->fetch(PDO::FETCH_ASSOC);
 $color_sistema = $conf['color_barra_nav'] ?? '#102A57';
 
@@ -378,8 +378,28 @@ include 'includes/componente_banner.php';
         </div>
 
         <div class="tab-pane fade" id="personalizacion">
+            
+            <div class="card border-0 shadow-sm rounded-4 mb-4" style="border-left: 5px solid #0d6efd !important;">
+                <div class="card-body p-4 bg-white rounded-4">
+                    <form action="cambiar_rubro.php" method="POST" class="d-flex align-items-end gap-3 mb-0">
+                        <div class="flex-grow-1">
+                            <label class="small fw-bold text-primary text-uppercase mb-2"><i class="bi bi-magic me-1"></i> Aplicar Tema Rápido (Marca Blanca)</label>
+                            <select name="rubro_seleccionado" class="form-select shadow-sm fw-bold border-primary text-dark">
+                                <option value="kiosco" <?php echo (($conf['tipo_negocio'] ?? '') == 'kiosco') ? 'selected' : ''; ?>>🏪 Kiosco / Minimarket</option>
+                                <option value="ferreteria" <?php echo (($conf['tipo_negocio'] ?? '') == 'ferreteria') ? 'selected' : ''; ?>>🔧 Ferretería / Corralón</option>
+                                <option value="dietetica" <?php echo (($conf['tipo_negocio'] ?? '') == 'dietetica') ? 'selected' : ''; ?>>🌿 Dietética / Todo Suelto</option>
+                                <option value="libreria" <?php echo (($conf['tipo_negocio'] ?? '') == 'libreria') ? 'selected' : ''; ?>>📚 Librería / Papelería</option>
+                                <option value="petshop" <?php echo (($conf['tipo_negocio'] ?? '') == 'petshop') ? 'selected' : ''; ?>>🐕 Pet Shop / Veterinaria</option>
+                                <option value="indumentaria" <?php echo (($conf['tipo_negocio'] ?? '') == 'indumentaria') ? 'selected' : ''; ?>>👗 Indumentaria / Ropa</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary shadow fw-bold px-4">APLICAR TEMA</button>
+                    </form>
+                </div>
+            </div>
             <form method="POST">
                 <input type="hidden" name="guardar_personalizacion" value="1">
+                
                 <div class="row g-4">
                     <div class="col-12">
                         <div class="card border-0 shadow-sm rounded-4">
