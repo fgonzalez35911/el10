@@ -14,7 +14,7 @@ $permisos = $_SESSION['permisos'] ?? [];
 $rol = $_SESSION['rol'] ?? 3;
 $es_admin = ($rol <= 2);
 
-if (!$es_admin && !in_array('ver_gastos', $permisos)) { 
+if (!$es_admin && !in_array('finanzas_registrar_gasto', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
@@ -29,7 +29,7 @@ $rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
 
 // --- 2. REGISTRO DE GASTO ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    if (!$es_admin && !in_array('crear_gasto', $permisos)) { die("Sin permiso."); }
+    if (!$es_admin && !in_array('finanzas_registrar_gasto', $permisos)) { die("Sin permiso para registrar salidas de dinero."); }
     if (!$id_caja_sesion) { die("Error: Caja cerrada."); }
     
     $desc = $_POST['descripcion'];

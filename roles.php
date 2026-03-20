@@ -204,10 +204,10 @@ try {
                                 <div class="permiso-item">
                                     <div class="form-check form-switch mb-0">
                                         <input class="form-check-input" type="checkbox" name="permisos[]" value="<?php echo $p['id']; ?>" id="chk_<?php echo $p['id']; ?>">
-                                        <label class="form-check-label fw-bold d-block" for="chk_<?php echo $p['id']; ?>" style="cursor:pointer; font-size: 0.85rem;">
-                                            <?php echo str_replace('_', ' ', strtoupper($p['clave'])); ?>
+                                        <label class="form-check-label fw-bold d-block text-dark" for="chk_<?php echo $p['id']; ?>" style="cursor:pointer; font-size: 0.85rem;">
+                                            <?php echo htmlspecialchars($p['descripcion']); ?>
                                         </label>
-                                        <small class="text-muted d-block" style="font-size: 0.7rem; line-height: 1.1;"><?php echo htmlspecialchars($p['descripcion']); ?></small>
+                                        <small class="text-muted d-block" style="font-size: 0.7rem; line-height: 1.1;">[ <?php echo strtoupper($p['clave']); ?> ]</small>
                                     </div>
                                 </div>
                             </div>

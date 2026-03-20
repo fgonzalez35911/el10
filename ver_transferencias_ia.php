@@ -8,6 +8,12 @@ if (!isset($_SESSION['usuario_id'])) {
     exit; 
 }
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
+$permisos = $_SESSION['permisos'] ?? [];
+
+// --- CANDADO DE ACCESO IA ---
+if (!$es_admin && !in_array('ia_aprobar_pendiente', $permisos) && !in_array('ia_escanear_comprobante', $permisos) && !in_array('ia_validar_gemini', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 
 // ==========================================
 // 1. MOTOR DE BORRADO (AJAX POST) - INTACTO
@@ -36,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['solicitud_borrar'])) 
 // 1.6. MOTOR DE APROBAR PENDIENTES
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['solicitud_aprobar_pendiente'])) {
+    if (!$es_admin && !in_array('ia_aprobar_pendiente', $permisos)) { die("Sin permiso para impactar pagos."); }
     if (ob_get_length()) ob_clean(); 
     $id_transf = intval($_POST['id_transf']);
     

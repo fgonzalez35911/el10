@@ -300,6 +300,7 @@ try {
                                 </div>
                                 <div id="msg-cupon" class="small fw-bold mt-1" style="font-size: 0.75rem; display:none;"></div>
                             </div>
+                            <?php if (in_array('caja_aplicar_descuento', $permisos) || $es_admin): ?>
                             <div class="col-6">
                                 <label class="small fw-bold text-muted mb-1">Desc. Manual $</label>
                                 <div class="input-group input-group-sm">
@@ -307,6 +308,11 @@ try {
                                     <input type="number" id="input-desc-manual" class="form-control fw-bold text-danger" placeholder="0" min="0">
                                 </div>
                             </div>
+                            <?php else: ?>
+                            <div class="col-6 d-none">
+                                <input type="hidden" id="input-desc-manual" value="0">
+                            </div>
+                            <?php endif; ?>
                         </div>
 
                         <div class="total-box text-center mb-4">
@@ -318,13 +324,23 @@ try {
                         <div class="mb-3">
                             <label class="fw-bold small mb-1">Forma de Pago</label>
                             <select id="metodo-pago" class="form-select form-select-lg">
-                                <option value="Efectivo">💵 Efectivo</option>
-                                <option value="mercadopago">📱 MercadoPago</option>
-                                <option value="Transferencia">🏦 Transferencia</option>
-                                <option value="Debito">💳 Débito</option>
-                                <option value="Credito">💳 Crédito</option>
+                                <?php if (in_array('caja_cobrar_efectivo', $permisos) || $es_admin): ?>
+                                    <option value="Efectivo">💵 Efectivo</option>
+                                <?php endif; ?>
+                                <?php if (in_array('caja_cobrar_mp', $permisos) || $es_admin): ?>
+                                    <option value="mercadopago">📱 MercadoPago</option>
+                                <?php endif; ?>
+                                <?php if (in_array('caja_cobrar_transferencia', $permisos) || $es_admin): ?>
+                                    <option value="Transferencia">🏦 Transferencia</option>
+                                <?php endif; ?>
+                                <?php if (in_array('caja_cobrar_tarjetas', $permisos) || $es_admin): ?>
+                                    <option value="Debito">💳 Débito</option>
+                                    <option value="Credito">💳 Crédito</option>
+                                <?php endif; ?>
                                 <option value="Mixto">💸 PAGO MIXTO</option>
-                                <option value="CtaCorriente" class="fw-bold text-danger">🗒️ FIADO / CC</option>
+                                <?php if (in_array('caja_cobrar_fiado', $permisos) || $es_admin): ?>
+                                    <option value="CtaCorriente" class="fw-bold text-danger">🗒️ FIADO / CC</option>
+                                <?php endif; ?>
                             </select>
                         </div>
 
@@ -359,6 +375,7 @@ try {
                             <small>Detalle se confirmará al finalizar.</small>
                         </div>
 
+                        <?php if (in_array('caja_venta_espera', $permisos) || $es_admin): ?>
                         <div class="d-flex gap-2 mb-2">
                             <button type="button" class="btn btn-warning fw-bold flex-fill" onclick="suspenderVentaActual()">
                                 <i class="bi bi-pause-circle"></i> ESPERA
@@ -367,6 +384,7 @@ try {
                                 <i class="bi bi-arrow-counterclockwise"></i> RECUPERAR
                             </button>
                         </div>
+                        <?php endif; ?>
 
                         <div class="d-grid gap-2 mt-auto">
                             <button id="btn-finalizar" class="btn btn-success btn-lg py-3 fw-bold shadow">
@@ -959,11 +977,14 @@ try {
             }, 300); // Pequeña espera para que el modal termine de cerrar
         };
 
+        const permEliminarItem = <?php echo (in_array('caja_eliminar_item', $permisos) || $es_admin) ? 'true' : 'false'; ?>;
+        
         function render() {
             let h = '', subtotal = 0; 
             carrito.forEach((i, x) => { 
                 subtotal += i.precio * i.cantidad; 
-                h += `<tr><td class="ps-3">${i.descripcion}</td><td>$${i.precio}</td><td><input type="number" class="form-control form-control-sm text-center" value="${i.cantidad}" onchange="upd(${x},this.value)"></td><td>$${(i.precio*i.cantidad).toFixed(2)}</td><td><button class="btn btn-sm text-danger" onclick="del(${x})"><i class="bi bi-trash"></i></button></td></tr>`; 
+                let btnEliminar = permEliminarItem ? `<button class="btn btn-sm text-danger" onclick="del(${x})"><i class="bi bi-trash"></i></button>` : '';
+                h += `<tr><td class="ps-3">${i.descripcion}</td><td>$${i.precio}</td><td><input type="number" class="form-control form-control-sm text-center" value="${i.cantidad}" onchange="upd(${x},this.value)"></td><td>$${(i.precio*i.cantidad).toFixed(2)}</td><td>${btnEliminar}</td></tr>`; 
             });
             $('#carrito-body').html(h); $('#total-venta').attr('data-subtotal', subtotal); calc();
         }
@@ -1092,7 +1113,7 @@ try {
                             }
                         }
                     });
-                    if(resto > 0) textoBilletes += `Monedas: $${resto.toFixed(2)}`;
+                    // Eliminamos el cálculo de monedas residuales
                     $('#desglose-billetes').html(textoBilletes).show();
                 } else {
                     $('#monto-vuelto').text('$ 0.00');
@@ -1469,6 +1490,7 @@ function abrirEscanerTransferencia(esSuma = false) {
         // --- MAGIA: LIMPIEZA EXTREMADAMENTE SEGURA PARA NO PERDER MODO CAJA ---
         window.limpiarPantallaVenta = function() {
             Swal.close();
+            if(typeof intervaloMP !== 'undefined' && intervaloMP) clearInterval(intervaloMP);
             vaciarCarrito();
             
             // Reseteo de Cliente
@@ -1489,6 +1511,8 @@ function abrirEscanerTransferencia(esSuma = false) {
             if(window.pagosMixtosActuales) window.pagosMixtosActuales = [];
             if(window.puntosUsadosMonto) window.puntosUsadosMonto = 0;
             
+            // RESETEAMOS LOS BOTONES QUE QUEDABAN CONGELADOS
+            $('#btn-sync-mp button').prop('disabled', false).html('<i class="bi bi-cloud-upload"></i> CARGAR PRECIO AL QR');
             $('#btn-finalizar').prop('disabled', false).html('<i class="bi bi-check-lg"></i> CONFIRMAR VENTA');
             setTimeout(() => $('#buscar-producto').focus(), 200);
         };
@@ -1753,12 +1777,16 @@ function abrirEscanerTransferencia(esSuma = false) {
 
                     if(intervaloMP) clearInterval(intervaloMP);
                     intervaloMP = setInterval(function() {
-                        $.getJSON('acciones/verificar_pago_mp.php', { referencia: ref }, function(statusRes) {
+                        // Le agregamos la hora exacta a la URL para obligar al navegador a no usar la caché
+                        let urlSinCache = 'acciones/verificar_pago_mp.php?t=' + new Date().getTime();
+                        
+                        $.getJSON(urlSinCache, { referencia: ref }, function(statusRes) {
                             if(statusRes.estado === 'pagado') {
                                 clearInterval(intervaloMP);
                                 Swal.close();
                                 $('#metodo-pago').val('mercadopago');
-                                $('#btn-finalizar').removeClass('d-none').click(); 
+                                // Guardado directo y silencioso, sin simular clics ni abrir carteles
+                                procesarVentaBackend('completada', null); 
                             }
                         });
                     }, 3000);

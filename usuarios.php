@@ -31,7 +31,7 @@ $permisos = $_SESSION['permisos'] ?? [];
 $rol_usuario_actual = $_SESSION['rol'] ?? 3;
 $es_admin = ($rol_usuario_actual <= 2);
 
-if (!$es_admin && !in_array('ver_usuarios', $permisos)) { 
+if (!$es_admin && !in_array('config_gestionar_usuarios', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
@@ -44,7 +44,7 @@ $dueno_firma = $stmtFirma ? $stmtFirma->fetch(PDO::FETCH_ASSOC) : false;
 
 // --- 1. PROCESAR ALTA ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_usuario'])) {
-    if (!$es_admin && !in_array('crear_usuario', $permisos)) die("Sin permiso.");
+    if (!$es_admin && !in_array('config_gestionar_usuarios', $permisos)) die("Sin permiso para crear.");
     $nombre = trim($_POST['nombre']); $user = trim($_POST['usuario']);
     $email = trim($_POST['email']); $whatsapp = trim($_POST['whatsapp']);
     $pass = $_POST['password']; $rol = $_POST['id_rol'];
@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_usuario'])) {
 
 // --- 2. PROCESAR EDICIÓN ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['editar_usuario'])) {
-    if (!$es_admin && !in_array('editar_usuario', $permisos)) die("Sin permiso.");
+    if (!$es_admin && !in_array('config_gestionar_usuarios', $permisos)) die("Sin permiso para editar.");
     $id_upd = intval($_POST['id_usuario_edit']); $nombre = trim($_POST['nombre']);
     $email = trim($_POST['email']); $whatsapp = trim($_POST['whatsapp']);
     $rol = intval($_POST['id_rol']); $estado = intval($_POST['activo'] ?? 1);
@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['editar_usuario'])) {
 
 // --- 3. PROCESAR ELIMINACIÓN ---
 if (isset($_GET['borrar'])) {
-    if (!$es_admin && !in_array('eliminar_usuario', $permisos)) die("Sin permiso.");
+    if (!$es_admin && !in_array('config_gestionar_usuarios', $permisos)) die("Sin permiso para eliminar.");
     $id_borrar = intval($_GET['borrar']);
     if ($id_borrar == $_SESSION['usuario_id'] || $id_borrar == 1) { header("Location: usuarios.php?err=" . ($id_borrar == 1 ? "admin" : "self")); exit; }
     
@@ -233,7 +233,7 @@ include 'includes/componente_banner.php';
                     <a href="roles.php" class="btn btn-outline-dark fw-bold rounded-pill px-3 shadow-sm flex-fill flex-lg-grow-0 text-center">
                         <i class="bi bi-shield-lock me-1"></i> ROLES
                     </a>
-                    <?php if($es_admin || in_array('crear_usuario', $permisos)): ?>
+                    <?php if($es_admin || in_array('config_gestionar_usuarios', $permisos)): ?>
                         <button type="button" class="btn btn-success fw-bold rounded-pill px-4 shadow-sm flex-fill flex-lg-grow-0" data-bs-toggle="modal" data-bs-target="#modalAlta">
                             <i class="bi bi-person-plus-fill me-1"></i> NUEVO
                         </button>
@@ -286,12 +286,12 @@ include 'includes/componente_banner.php';
                             </td>
                             <td class="text-end pe-4">
                                 <div class="d-flex justify-content-end gap-2">
-                                    <?php if($es_admin || in_array('editar_usuario', $permisos)): ?>
+                                    <?php if($es_admin || in_array('config_gestionar_usuarios', $permisos)): ?>
                                         <button type="button" onclick="event.stopPropagation(); abrirEditar(this)" class="btn btn-sm btn-light text-warning rounded-circle shadow-sm" title="Editar">
                                             <i class="bi bi-pencil-fill"></i>
                                         </button>
                                     <?php endif; ?>
-                                    <?php if($es_admin || in_array('eliminar_usuario', $permisos)): ?>
+                                    <?php if($es_admin || in_array('config_gestionar_usuarios', $permisos)): ?>
                                         <a href="usuarios.php?borrar=<?php echo $user['id']; ?>" class="btn btn-sm btn-light text-danger rounded-circle shadow-sm" onclick="event.stopPropagation(); confirmarEliminacion(event, this.href)" title="Eliminar">
                                             <i class="bi bi-trash-fill"></i>
                                         </a>

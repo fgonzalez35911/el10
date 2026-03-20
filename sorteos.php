@@ -8,7 +8,7 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 // --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
-if (!$es_admin && !in_array('ver_sorteos', $permisos)) { header("Location: dashboard.php"); exit; }
+if (!$es_admin && !in_array('mkt_ver_sorteos', $permisos)) { header("Location: dashboard.php"); exit; }
 
 // --- PARCHE AUTOMÁTICO DE BASE DE DATOS ---
 try {
@@ -21,6 +21,7 @@ $rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
 
 // 1. PROCESAR CREACIÓN DE SORTEO (Estado inicial: pendiente)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_sorteo'])) {
+    if (!$es_admin && !in_array('mkt_crear_sorteo', $permisos)) die("Sin permiso para crear sorteos.");
     $titulo = $_POST['titulo'];
     $precio = $_POST['precio'];
     $cant = $_POST['cantidad'];
@@ -194,7 +195,7 @@ include 'includes/componente_banner.php';
             <button class="btn btn-info btn-sm text-white fw-bold shadow-sm rounded-pill px-3 py-1" data-bs-toggle="modal" data-bs-target="#modalGanadores">
                 <i class="bi bi-trophy-fill me-1"></i> GANADORES
             </button>
-            <?php if($es_admin || in_array('crear_sorteo', $permisos)): ?>
+            <?php if($es_admin || in_array('mkt_crear_sorteo', $permisos)): ?>
             <button class="btn btn-primary btn-sm fw-bold shadow-sm rounded-pill px-3 py-1" data-bs-toggle="modal" data-bs-target="#modalNuevoSorteo">
                 <i class="bi bi-plus-circle-fill me-1"></i> NUEVA RIFA
             </button>

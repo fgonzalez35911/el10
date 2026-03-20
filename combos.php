@@ -10,7 +10,7 @@ $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
 
 // Candado de Página
-if (!$es_admin && !in_array('ver_combos', $permisos)) { header("Location: dashboard.php"); exit; }
+if (!$es_admin && !in_array('stock_gestionar_combos', $permisos)) { header("Location: dashboard.php"); exit; }
 
 // --- 1. PROCESAR IMAGEN (CROPPER) ---
 function procesarImagenBase64($base64, $url_texto, $actual) {

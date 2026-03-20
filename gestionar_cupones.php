@@ -11,7 +11,7 @@ foreach ($rutas_db as $ruta) { if (file_exists($ruta)) { require_once $ruta; bre
 // --- CANDADOS DE SEGURIDAD ---
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
-if (!$es_admin && !in_array('ver_cupones', $permisos)) { header("Location: dashboard.php"); exit; }
+if (!$es_admin && !in_array('mkt_gestionar_cupones', $permisos)) { header("Location: dashboard.php"); exit; }
 
 
 if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] > 2) { header("Location: dashboard.php"); exit; }
@@ -20,6 +20,7 @@ $conf_rubro = $conexion->query("SELECT tipo_negocio FROM configuracion WHERE id=
 $rubro_actual = $conf_rubro['tipo_negocio'] ?? 'kiosco';
 
 if (isset($_GET['borrar'])) {
+    if (!$es_admin && !in_array('mkt_gestionar_cupones', $permisos)) die("Sin permiso.");
     $id_borrar = intval($_GET['borrar']);
     $stmtC = $conexion->prepare("SELECT codigo FROM cupones WHERE id = ?");
     $stmtC->execute([$id_borrar]);
@@ -37,6 +38,7 @@ if (isset($_GET['borrar'])) {
 $mensaje = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['action'])) {
+    if (!$es_admin && !in_array('mkt_gestionar_cupones', $permisos)) die("Sin permiso.");
     $codigo = strtoupper(trim($_POST['codigo']));
     $porcentaje = (int)$_POST['porcentaje'];
     $vencimiento = $_POST['vencimiento'];
@@ -60,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['action'])) {
 }
 
 if (isset($_POST['action']) && $_POST['action'] == 'edit') {
+    if (!$es_admin && !in_array('mkt_gestionar_cupones', $permisos)) die("Sin permiso.");
     $id_edit = intval($_POST['id_cupon']);
     $codigo = strtoupper(trim($_POST['codigo']));
     $porcentaje = (int)$_POST['porcentaje'];
@@ -250,7 +253,7 @@ foreach($cupones as $c) {
                         </div>
                         <div class="card-footer bg-white border-top p-3 d-flex justify-content-end gap-2">
                             <button onclick='abrirModalEditar(<?php echo json_encode($c); ?>)' class="btn btn-sm btn-outline-primary border-0 rounded-circle"><i class="bi bi-pencil-square"></i></button>
-                            <?php if($es_admin || in_array('eliminar_cupon', $permisos)): ?>
+                            <?php if($es_admin || in_array('mkt_gestionar_cupones', $permisos)): ?>
                                 <button onclick="confirmarBorrado(<?php echo $c['id']; ?>)" class="btn btn-sm btn-outline-danger border-0 rounded-circle"><i class="bi bi-trash3-fill"></i></button>
                             <?php endif; ?>
                         </div>

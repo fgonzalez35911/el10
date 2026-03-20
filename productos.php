@@ -129,10 +129,11 @@ $titulo = "Catálogo de Productos";
 $subtitulo = "Administración de stock y precios del sistema.";
 $icono_bg = "bi-grid-3x3-gap-fill";
 
-$botones = [
-    ['texto' => 'CREAR', 'icono' => 'bi-plus-circle-fill', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:abrirModalCrear()'],
-    ['texto' => 'REPORTE PDF', 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:lanzarReporteFiltrado()']
-];
+$botones = [];
+if ($es_admin || in_array('stock_crear_producto', $permisos)) {
+    $botones[] = ['texto' => 'CREAR', 'icono' => 'bi-plus-circle-fill', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:abrirModalCrear()'];
+}
+$botones[] = ['texto' => 'REPORTE PDF', 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'link' => 'javascript:lanzarReporteFiltrado()'];
 
 $widgets = [
     ['label' => 'Total Productos', 'valor' => $total_prod, 'icono' => 'bi-box', 'icon_bg' => 'bg-white bg-opacity-10', 'extra' => 'onclick="verTodos()" style="cursor:pointer;"'],
@@ -207,7 +208,7 @@ include 'includes/componente_banner.php';
             <button class="btn btn-primary fw-bold btn-toggle-filters flex-fill m-0 shadow-sm d-md-none" type="button" onclick="toggleFiltrosMovil()">
                 <i class="bi bi-funnel-fill"></i> MOSTRAR FILTROS
             </button>
-            <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
+            <?php if($es_admin || in_array('stock_eliminar_producto', $permisos)): ?>
             <button type="button" id="btnBorrarMasivo" class="btn btn-danger fw-bold shadow-sm flex-fill flex-md-grow-0 d-none mb-md-0 mb-2" onclick="borrarSeleccionados()">
                 <i class="bi bi-trash3-fill me-1"></i> BORRAR (<span id="cuentaSeleccionados">0</span>)
             </button>
@@ -269,7 +270,7 @@ include 'includes/componente_banner.php';
             }
             $estadoData = ($p['activo'] ? 'activos' : 'pausados') . ($es_bajo_stock ? ' bajo_stock' : '') . ($es_vencimiento ? ' vencimientos' : '');
             
-            // Formateo visual de stock para pesables
+            // Formateo visual de stock para pesables y combos
             $txt_stock = $stk . " u.";
             if ($p['tipo'] === 'pesable') {
                 $kilos = floor($stk);
@@ -277,6 +278,8 @@ include 'includes/componente_banner.php';
                 if ($kilos > 0 && $gramos > 0) $txt_stock = $kilos . "kg " . $gramos . "gr";
                 else if ($kilos > 0) $txt_stock = $kilos . "kg";
                 else $txt_stock = $gramos . "gr";
+            } else if ($p['tipo'] === 'combo') {
+                $txt_stock = "COMBO";
             }
         ?>
         <div class="col-12 col-md-6 col-xl-3 item-grid <?php echo $es_bajo_stock ? 'row-bajo-stock' : ''; ?>"
@@ -310,7 +313,10 @@ include 'includes/componente_banner.php';
                     <div class="price-block"><div class="price-normal">$<?php echo number_format($precioV, 0, ',', '.'); ?></div></div>
                     
                     <div class="mt-auto">
-                        <div class="text-end mb-1"><span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;"><?php echo $txt_stock; ?></span></div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-warning fw-bold" style="font-size:0.75rem;">Reservado: <?php echo floatval($p['stock_reservado'] ?? 0); ?></span>
+                            <span style="font-size:0.85rem; font-weight:700; color:<?php echo $colorBarra; ?>;"><?php echo $txt_stock; ?></span>
+                        </div>
                         <div class="stock-progress"><div class="progress-fill" style="width: <?php echo $pct; ?>%; background-color: <?php echo $colorBarra; ?>;"></div></div>
 
                         <div class="card-footer-actions mt-2 pt-2 border-top">
@@ -319,7 +325,9 @@ include 'includes/componente_banner.php';
                             </div>
                             <div class="d-flex gap-1 ms-auto">
                                 <button type="button" class="btn-action btn-wallet" onclick="event.stopPropagation(); reponerStock(<?php echo $p['id']; ?>, '<?php echo addslashes($p['descripcion']); ?>', <?php echo $stk; ?>, '<?php echo $p['tipo']; ?>')"><i class="bi bi-plus-circle-fill"></i></button>
+                                <?php if($es_admin || in_array('stock_editar_producto', $permisos)): ?>
                                 <a href="<?php echo $p['tipo'] === 'combo' ? 'combos.php?editar_codigo='.trim($p['codigo_barras']).'&origen=productos' : 'producto_formulario.php?id='.$p['id']; ?>" class="btn-action btn-edit" onclick="event.stopPropagation();"><i class="bi bi-pencil-fill"></i></a>
+                                <?php endif; ?>
                                 <?php if($es_admin || in_array('eliminar_producto', $permisos)): ?>
                                 <button type="button" class="btn-action btn-danger" style="background:#dc3545; color:white; border-radius:50%; width:32px; height:32px; border:none; display:flex; align-items:center; justify-content:center;" onclick="event.stopPropagation(); borrarId(<?php echo $p['id']; ?>)"><i class="bi bi-trash-fill"></i></button>
                                 <?php endif; ?>
@@ -360,6 +368,7 @@ include 'includes/componente_banner.php';
                             <th style="width: 30%;">PRODUCTO</th>
                             <th class="text-end" style="width: 15%;">PRECIO</th>
                             <th class="text-center" style="width: 15%;">STOCK</th>
+                            <th class="border-0 text-warning" style="width: 100px;">RESERVADO</th>
                             <th class="text-center d-none d-md-table-cell" style="width: 10%;">ESTADO</th>
                             <th class="text-center" style="width: 10%;">ACCIONES</th>
                         </tr>
@@ -385,6 +394,8 @@ include 'includes/componente_banner.php';
                                 if ($kilos_l > 0 && $gramos_l > 0) $txt_stock_lista = $kilos_l . "kg " . $gramos_l . "gr";
                                 else if ($kilos_l > 0) $txt_stock_lista = $kilos_l . "kg";
                                 else $txt_stock_lista = $gramos_l . "gr";
+                            } else if ($p['tipo'] === 'combo') {
+                                $txt_stock_lista = "COMBO";
                             }
                         ?>
                         <tr class="item-lista" data-nombre="<?= strtolower($p['descripcion']) ?>" data-codigo="<?= strtolower($p['codigo_barras']) ?>" data-cat="<?= $p['id_categoria'] ?>" data-estado="<?= $estD ?>" data-precio="<?= $pv ?>" data-id="<?= $p['id'] ?>">
@@ -399,7 +410,7 @@ include 'includes/componente_banner.php';
                                 <div class="d-md-none text-muted fw-normal mt-1" style="font-size: 10px;">Cód: <?= $p['codigo_barras'] ?></div>
                             </td>
                             <td class="text-end fw-bold text-success">$<?= number_format($pv, 2, ',', '.') ?></td>
-                            <td class="text-center fw-bold"><?= $txt_stock_lista ?></td>
+                            <td class="text-center text-warning fw-bold"><?= floatval($p['stock_reservado'] ?? 0) ?></td>
                             <td class="text-center d-none d-md-table-cell">
                                 <div class="form-check form-switch m-0 d-flex justify-content-center">
                                     <input class="form-check-input" type="checkbox" onchange="window.location.href='productos.php?toggle_id=<?= $p['id'] ?>&estado=<?= $p['activo'] ?>'" <?= $p['activo'] ? 'checked' : '' ?>>
@@ -470,14 +481,27 @@ include 'includes/componente_banner.php';
                         </select>
                     </div>
                     <div class="row mb-4">
+                        <?php if ($es_admin || in_array('stock_cambiar_costo', $permisos)): ?>
                         <div class="col-6">
                             <label class="small fw-bold text-muted">Actualizar Costo $</label>
                             <input type="number" step="0.01" name="nuevo_costo" class="form-control text-center" placeholder="Opcional">
                         </div>
+                        <?php else: ?>
+                        <div class="col-6 d-none">
+                            <input type="hidden" name="nuevo_costo" value="">
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if ($es_admin || in_array('stock_cambiar_precio', $permisos)): ?>
                         <div class="col-6">
                             <label class="small fw-bold text-muted">Actualizar P. Venta $</label>
                             <input type="number" step="0.01" name="nuevo_precio" class="form-control text-center" placeholder="Opcional">
                         </div>
+                        <?php else: ?>
+                        <div class="col-6 d-none">
+                            <input type="hidden" name="nuevo_precio" value="">
+                        </div>
+                        <?php endif; ?>
                     </div>
                     <button type="submit" class="btn btn-success w-100 fw-bold py-2 shadow-sm"><i class="bi bi-check-lg"></i> GUARDAR INGRESO</button>
                 </form>
@@ -597,6 +621,8 @@ function verFichaProducto(id) {
             if (kilos > 0 && gramos > 0) stockF = kilos + "kg " + gramos + "gr";
             else if (kilos > 0) stockF = kilos + "kg";
             else stockF = gramos + "gr";
+        } else if (p.tipo === 'combo') {
+            stockF = "COMBO / ILIMITADO";
         }
         let linkPdf = window.location.origin + "/ticket_producto_pdf.php?id=" + p.id;
         let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=2&data=` + encodeURIComponent(linkPdf);
@@ -622,9 +648,15 @@ function verFichaProducto(id) {
                     <div style="margin-bottom: 4px;"><strong>CÓDIGO:</strong> ${p.codigo_barras}</div>
                     <div><strong>CATEGORÍA:</strong> ${p.cat_nom || 'GENERAL'}</div>
                 </div>
-                <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-                    <span style="font-size: 1.1em; font-weight:800;">STOCK ACTUAL:</span>
-                    <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${stockF}</span>
+                <div style="background: #102A5710; border-left: 4px solid #102A57; padding: 12px; margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size: 1.1em; font-weight:800;">STOCK ACTUAL:</span>
+                        <span style="font-size: 1.15em; font-weight:900; color: #102A57;">${stockF}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:5px; border-top:1px solid rgba(16,42,87,0.1); padding-top:5px;">
+                        <span style="font-size: 0.9em; font-weight:700; color: #856404;">RESERVADO WEB:</span>
+                        <span style="font-size: 0.95em; font-weight:800; color: #856404;">${parseFloat(p.stock_reservado || 0)}</span>
+                    </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #eee;">
                     <div style="width: 45%; text-align: center;">${firmaHtml}</div>

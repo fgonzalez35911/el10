@@ -15,7 +15,7 @@ $rol = $_SESSION['rol'] ?? 3;
 $es_admin = ($rol <= 2);
 
 // Candado: Acceso a la página
-if (!$es_admin && !in_array('ver_mermas', $permisos)) { 
+if (!$es_admin && !in_array('stock_registrar_merma', $permisos)) { 
     header("Location: dashboard.php"); exit; 
 }
 

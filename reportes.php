@@ -16,7 +16,7 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = (($_SESSION['rol'] ?? 3) <= 2);
-if (!$es_admin && !in_array('ver_reportes', $permisos)) { header("Location: dashboard.php"); exit; }
+if (!$es_admin && !in_array('finanzas_ver_dashboard', $permisos)) { header("Location: dashboard.php"); exit; }
 
 // ==============================================================================
 // FUNCIÓN BLINDADA ANTIFALLOS (Evita Error 500 si falta una tabla)
@@ -260,10 +260,10 @@ include 'includes/componente_banner.php';
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body p-4 text-center">
-                <?php if($es_admin || in_array('descargar_excel', $permisos)): ?>
+                <?php if($es_admin || in_array('finanzas_descargar_reportes', $permisos)): ?>
                     <button onclick="exportarExcelPro()" class="btn btn-success w-100 fw-bold py-3 mb-3 rounded-pill shadow-sm"><i class="bi bi-file-earmark-excel me-2 fs-5 align-middle"></i> EXPORTAR EXCEL</button>
                 <?php endif; ?>
-                <?php if($es_admin || in_array('descargar_pdf', $permisos)): ?>
+                <?php if($es_admin || in_array('finanzas_descargar_reportes', $permisos)): ?>
                     <button onclick="generarReporteVeraz()" class="btn border border-2 border-dark text-dark w-100 fw-bold py-3 rounded-pill shadow-sm" data-bs-dismiss="modal" style="background: #f8f9fa;">
                         <i class="bi bi-file-earmark-pdf me-2 fs-5 align-middle"></i> INFORME GERENCIAL
                     </button>

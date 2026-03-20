@@ -13,7 +13,7 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($_SESSION['rol'] <= 2);
 
-if (!$es_admin && !in_array('ver_clientes', $permisos)) { 
+if (!$es_admin && !in_array('clientes_ver', $permisos)) { 
     header("Location: dashboard.php"); exit; 
 }
 
@@ -34,8 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
     $limite    = floatval($_POST['limite'] ?? 0);
     $id_edit   = $_POST['id_edit'] ?? '';
 
-    if ($id_edit && !$es_admin && !in_array('editar_cliente', $permisos)) die("Sin permiso.");
-    if (!$id_edit && !$es_admin && !in_array('crear_cliente', $permisos)) die("Sin permiso.");
+    if ($id_edit && !$es_admin && !in_array('clientes_editar', $permisos)) die("Sin permiso para editar.");
+    if (!$id_edit && !$es_admin && !in_array('clientes_crear', $permisos)) die("Sin permiso para crear.");
 
     if (!empty($nombre)) {
         try {
@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['reset_pass'])) {
 }
 
 if (isset($_GET['borrar'])) {
-    if (!$es_admin && !in_array('eliminar_cliente', $permisos)) die("Sin permiso.");
+    if (!$es_admin && !in_array('clientes_eliminar', $permisos)) die("Sin permiso para eliminar.");
     $id_b = intval($_GET['borrar']);
     try {
         $conexion->prepare("UPDATE ventas SET id_cliente = 1 WHERE id_cliente = ?")->execute([$id_b]);
@@ -314,10 +314,10 @@ include 'includes/componente_banner.php';
                     </td>
                     <td class="text-end pe-4 d-none d-md-table-cell" style="border-radius: 0 15px 15px 0;">
                         <div class="d-flex justify-content-end gap-2">
-                            <?php if($es_admin || in_array('cuenta_cliente', $permisos)): ?>
+                            <?php if($es_admin || in_array('clientes_ver_cc', $permisos)): ?>
                             <a href="cuenta_cliente.php?id=<?php echo $c['id']; ?>" onclick="event.stopPropagation();" class="btn-action-custom text-primary" title="Cuenta"><i class="bi bi-wallet2"></i></a>
                             <?php endif; ?>
-                            <?php if($es_admin || in_array('editar_cliente', $permisos)): ?>
+                            <?php if($es_admin || in_array('clientes_editar', $permisos)): ?>
                             <button class="btn-action-custom text-warning" onclick="event.stopPropagation(); editar(<?php echo $c['id']; ?>)" title="Editar"><i class="bi bi-pencil-square"></i></button>
                             <?php endif; ?>
                         </div>
@@ -397,10 +397,10 @@ include 'includes/componente_banner.php';
                     <i class="bi bi-wallet2 me-2"></i>GESTIONAR CUENTA CORRIENTE
                 </a>
                 <div class="d-flex justify-content-center gap-2 mt-2">
-                    <?php if($es_admin || in_array('editar_cliente', $permisos)): ?>
+                    <?php if($es_admin || in_array('clientes_editar', $permisos)): ?>
                     <button type="button" id="btn-edit-mob" class="btn btn-outline-warning fw-bold px-4 rounded-pill flex-grow-1"><i class="bi bi-pencil-square me-1"></i> EDITAR</button>
                     <?php endif; ?>
-                    <?php if($es_admin || in_array('eliminar_cliente', $permisos)): ?>
+                    <?php if($es_admin || in_array('clientes_eliminar', $permisos)): ?>
                     <button type="button" id="btn-del-mob" class="btn btn-outline-danger fw-bold px-4 rounded-pill flex-grow-1"><i class="bi bi-trash3-fill me-1"></i> BORRAR</button>
                     <?php endif; ?>
                 </div>

@@ -8,6 +8,12 @@ $usuario_id = $_SESSION['usuario_id'];
 $rol_usuario = $_SESSION['rol'] ?? 3;
 $fecha_actual = date('Y-m-d H:i:s');
 
+// --- CANDADO: PERMISO PARA ARQUEO ---
+$permisos_caja = $_SESSION['permisos'] ?? [];
+if (($rol_usuario > 2) && !in_array('caja_cerrar_turno', $permisos_caja)) {
+    die("<div style='padding:50px; text-align:center; font-family:sans-serif; background:#0f172a; color:#fff; height:100vh;'><h2>⛔ ACCESO DENEGADO</h2><p>No tienes el candado para realizar el Cierre de Caja.</p><a href='dashboard.php' style='color:#22c55e;'>Volver al Inicio</a></div>");
+}
+
 $id_sesion = null;
 $monto_inicial = 0;
 

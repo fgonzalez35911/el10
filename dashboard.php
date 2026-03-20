@@ -58,6 +58,13 @@ if ($es_admin || in_array('ver_transferencias', $permisos)) {
     $alertas_transferencias = $stmtT->fetchColumn();
 }
 
+// --- ALERTA DE PEDIDOS WEB VENCIDOS ---
+$pedidos_vencidos = 0;
+if ($es_admin || in_array('ver_productos', $permisos)) {
+    $stmtV = $conexion->query("SELECT COUNT(*) FROM pedidos_whatsapp WHERE estado = 'aprobado' AND fecha_retiro IS NOT NULL AND fecha_retiro < NOW()");
+    $pedidos_vencidos = $stmtV ? $stmtV->fetchColumn() : 0;
+}
+
 // --- CONEXIÓN REAL CON ALERTA DE STOCK GLOBAL ---
 $alerta_html = "";
 
@@ -68,6 +75,17 @@ if ($alertas_transferencias > 0) {
         <div>
             <strong class="d-block text-dark">¡TRANSFERENCIAS PENDIENTES!</strong>
             <span class="small text-dark">Tenés <b>'.$alertas_transferencias.'</b> pago(s) en espera de impacto desde hace más de 6 horas. <a href="ver_transferencias_ia.php" class="alert-link text-decoration-underline text-primary">Verificar cuenta bancaria</a></span>
+        </div>
+    </div>';
+}
+
+if ($pedidos_vencidos > 0) {
+    $alerta_html .= '
+    <div class="alert shadow-sm rounded-4 border-0 d-flex align-items-center mb-4 mt-2 animate__animated animate__headShake" style="background-color: #f8d7da; border-left: 5px solid #dc3545 !important;">
+        <i class="bi bi-cart-x-fill fs-3 me-3 text-danger"></i>
+        <div>
+            <strong class="d-block text-dark">¡RESERVAS VENCIDAS!</strong>
+            <span class="small text-dark">Tenés <b>'.$pedidos_vencidos.'</b> pedido(s) web reservado(s) que superaron el plazo de retiro acordado. <a href="admin_pedidos_whatsapp.php" class="alert-link text-decoration-underline text-primary">Revisar reservas</a></span>
         </div>
     </div>';
 }
@@ -97,7 +115,7 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
         <a href="reportes.php?filtro=hoy" class="widget-stat">
             <span class="stat-label">Ventas Hoy</span>
             <div class="stat-value">
-            <?php if($es_admin || in_array('ver_reportes', $permisos)): ?>
+            <?php if($es_admin || in_array('finanzas_ver_dashboard', $permisos)): ?>
                 $<?php echo number_format($venta_neta, 0, ',', '.'); ?>
                 <?php if($totalDevueltoHoy > 0): ?>
                     <div style="font-size: 0.65rem; opacity: 0.7; font-weight: normal; line-height: 1;">
@@ -174,7 +192,7 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
     </div>
 </a>
 
-<?php if($es_admin || in_array('ver_productos', $permisos) || in_array('ver_combos', $permisos) || in_array('ver_clientes', $permisos) || in_array('ver_proveedores', $permisos) || in_array('ver_sorteos', $permisos)): ?>
+<?php if($es_admin || in_array('stock_ver_productos', $permisos) || in_array('stock_gestionar_combos', $permisos) || in_array('clientes_ver', $permisos) || in_array('proveedores_ver', $permisos) || in_array('mkt_ver_sorteos', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_1']; ?></h5>
 <div class="row g-3 mb-4 row-cols-3 row-cols-md-4 row-cols-lg-6">
     <div class="col">
@@ -216,7 +234,7 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
 </div>
 <?php endif; ?>
 
-<?php if($es_admin || in_array('ver_historial_cajas', $permisos) || in_array('ver_gastos', $permisos) || in_array('ver_inflacion', $permisos) || in_array('ver_cupones', $permisos) || in_array('revista_builder', $permisos)): ?>
+<?php if($es_admin || in_array('finanzas_ver_historial_cajas', $permisos) || in_array('finanzas_registrar_gasto', $permisos) || in_array('stock_aumento_masivo', $permisos) || in_array('mkt_gestionar_cupones', $permisos) || in_array('mkt_revista_digital', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_2']; ?></h5>
 <div class="row g-3 mb-4 row-cols-3 row-cols-md-4 row-cols-lg-6">
     <div class="col">
@@ -258,9 +276,15 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
 </div>
 <?php endif; ?>
 
-<?php if($es_admin || in_array('ver_reportes', $permisos) || in_array('ver_configuracion', $permisos) || in_array('ver_usuarios', $permisos) || in_array('ver_auditoria', $permisos)): ?>
+<?php if($es_admin || in_array('finanzas_ver_dashboard', $permisos) || in_array('config_ver_panel', $permisos) || in_array('config_gestionar_usuarios', $permisos) || in_array('config_ver_auditoria', $permisos)): ?>
 <h5 class="font-cancha border-bottom pb-2 mb-3 text-secondary"><?php echo $conf['label_seccion_3']; ?></h5>
 <div class="row g-3 mb-5 row-cols-3 row-cols-md-4 row-cols-lg-6">
+    <div class="col">
+        <a href="admin_pedidos_whatsapp.php" class="card-menu">
+            <div class="icon-box-lg icon-verde"><i class="bi bi-whatsapp"></i></div>
+            <span class="menu-title">Pedidos WA</span><span class="menu-sub">Reservar stock</span>
+        </a>
+    </div>
     <div class="col">
         <a href="reportes.php" class="card-menu">
             <div class="icon-box-lg icon-azul"><i class="bi bi-bar-chart-fill"></i></div>
@@ -291,12 +315,8 @@ if (($conf['stock_use_global'] ?? 0) == 1) {
             <span class="menu-title">Importador</span><span class="menu-sub"><?php echo $conf['label_importador']; ?></span>
         </a>
     </div>
-    <div class="col">
-        <a href="generar_backup.php" class="card-menu">
-            <div class="icon-box-lg icon-verde"><i class="bi bi-database-down"></i></div>
-            <span class="menu-title">Backup</span><span class="menu-sub"><?php echo $conf['label_respaldo']; ?></span>
-        </a>
-    </div>
+    
+    
    
 </div>
 <?php endif; ?>

@@ -14,16 +14,16 @@ $rol_usuario = $_SESSION['rol'] ?? 3;
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($rol_usuario <= 2);
 
-
+// --- CANDADO PRINCIPAL DE ACCESO ---
+if (!$es_admin && !in_array('config_ver_panel', $permisos)) { 
+    header("Location: dashboard.php"); exit; 
+}
 // --- 1. PROCESAR GUARDADO CONFIGURACIÓN GENERAL ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
     if (!$es_admin) {
-        if (isset($_POST['nombre_negocio']) && !in_array('conf_datos_negocio', $permisos)) die("Sin permiso para datos del negocio.");
-        if (isset($_POST['modulo_clientes']) && !in_array('conf_modulos', $permisos)) die("Sin permiso para módulos.");
-        if (isset($_POST['stock_global_valor']) && !in_array('conf_alerta_stock', $permisos)) die("Sin permiso para alertas de stock.");
-        if (isset($_POST['ticket_modo']) && !in_array('conf_comprobante', $permisos)) die("Sin permiso para modo comprobante.");
-        if (isset($_POST['redondeo_auto']) && !in_array('conf_caja', $permisos)) die("Sin permiso para ajustes de caja.");
-        if (isset($_POST['mp_access_token']) && !in_array('conf_mercadopago', $permisos)) die("Sin permiso para Mercado Pago.");
+        if (isset($_POST['nombre_negocio']) && !in_array('config_datos_negocio', $permisos)) die("Sin permiso para datos del negocio.");
+        if (isset($_POST['modulo_clientes']) && !in_array('config_modulos', $permisos)) die("Sin permiso para módulos.");
+        if (isset($_POST['mp_access_token']) && !in_array('config_mercadopago', $permisos)) die("Sin permiso para Mercado Pago.");
     }
 
     try {
@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_general'])) {
 
 // --- 2. PROCESAR GUARDADO AFIP ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['guardar_afip'])) {
-    if (!$es_admin && !in_array('conf_afip', $permisos)) die("Sin permiso para configuración AFIP.");
+    if (!$es_admin && !in_array('config_afip', $permisos)) die("Sin permiso para configuración AFIP.");
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) { die("Error de seguridad."); }
 
     $cuit_afip = trim($_POST['cuit_afip']);

@@ -18,6 +18,13 @@ if (!isset($_SESSION['usuario_id'])) {
 $id_cliente = intval($_GET['id'] ?? 0);
 if ($id_cliente <= 0) { header("Location: clientes.php"); exit; }
 
+// --- CANDADO: PERMISO DE LECTURA ---
+$permisos = $_SESSION['permisos'] ?? [];
+$es_admin = ($_SESSION['rol'] <= 2);
+if (!$es_admin && !in_array('clientes_ver_cc', $permisos)) { 
+    header("Location: clientes.php"); exit; 
+}
+
 // DATOS CLIENTE
 $stmt = $conexion->prepare("SELECT * FROM clientes WHERE id = ?");
 $stmt->execute([$id_cliente]);
@@ -27,6 +34,10 @@ if (!$cliente) die("Cliente no encontrado.");
 // REGISTRAR MOVIMIENTO MANUAL
 $msg = '';
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // --- CANDADO: PERMISO DE ESCRITURA ---
+    if (!$es_admin && !in_array('clientes_saldar_deuda', $permisos)) {
+        die("Error: No tienes permiso para registrar pagos o deudas.");
+    }
     try {
         $accion = $_POST['accion']; // 'pago' (haber) o 'deuda' (debe)
         $monto = (float)$_POST['monto'];
@@ -99,6 +110,7 @@ include 'includes/componente_banner.php';
 <div class="container pb-5 mt-n4" style="position: relative; z-index: 20;">
     <div class="row g-4">
         
+        <?php if($es_admin || in_array('clientes_saldar_deuda', $permisos)): ?>
         <div class="col-lg-4 order-2 order-lg-1">
             <div class="card card-form sticky-top shadow-sm border-0 rounded-4" style="top: 20px; z-index: 1;">
                 <div class="card-header bg-success text-white fw-bold py-3 header-form" id="headerForm">
@@ -137,8 +149,9 @@ include 'includes/componente_banner.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
-        <div class="col-lg-8 order-1 order-lg-2">
+        <div class="col-lg-<?php echo ($es_admin || in_array('clientes_saldar_deuda', $permisos)) ? '8' : '12'; ?> order-1 order-lg-2">
             <div class="card shadow-sm border-0 rounded-4 overflow-hidden h-100">
                 <div class="card-header bg-white py-3 fw-bold border-bottom d-flex align-items-center">
                     <i class="bi bi-clock-history text-primary me-2 fs-5"></i> Historial de Movimientos

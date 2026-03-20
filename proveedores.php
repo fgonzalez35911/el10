@@ -7,7 +7,7 @@ if (!isset($_SESSION['usuario_id'])) { header("Location: index.php"); exit; }
 $permisos = $_SESSION['permisos'] ?? [];
 $es_admin = ($_SESSION['rol'] <= 2);
 
-if (!$es_admin && !in_array('ver_proveedores', $permisos)) { 
+if (!$es_admin && !in_array('proveedores_ver', $permisos)) {
     header("Location: dashboard.php"); exit; 
 }
 
@@ -36,8 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['datos_pedido'])) {
     $email = trim($_POST['email'] ?? ''); 
     $id_edit = $_POST['id_edit'] ?? '';
     
-    if ($id_edit && !$es_admin && !in_array('editar_proveedor', $permisos)) die("Error: Sin permiso para editar.");
-    if (!$id_edit && !$es_admin && !in_array('crear_proveedor', $permisos)) die("Error: Sin permiso para crear.");
+    if ($id_edit && !$es_admin && !in_array('proveedores_editar', $permisos)) die("Error: Sin permiso para editar.");
+    if (!$id_edit && !$es_admin && !in_array('proveedores_crear', $permisos)) die("Error: Sin permiso para crear.");
 
     if (!empty($empresa)) {
         try {
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && !isset($_POST['datos_pedido'])) {
 }
 
 if (isset($_GET['borrar'])) {
-    if (!$es_admin && !in_array('eliminar_proveedor', $permisos)) die("Error: Sin permiso para eliminar.");
+    if (!$es_admin && !in_array('proveedores_eliminar', $permisos)) die("Error: Sin permiso para eliminar.");
     
     $stmt = $conexion->prepare("SELECT COUNT(*) FROM productos WHERE id_proveedor = ? AND activo = 1");
     $stmt->execute([$_GET['borrar']]);
@@ -97,7 +97,7 @@ $botones = [
     ['texto' => 'REPORTE PDF', 'link' => "reporte_proveedores.php", 'icono' => 'bi-file-earmark-pdf-fill', 'class' => 'btn btn-danger fw-bold rounded-pill px-4 shadow-sm', 'target' => '_blank']
 ];
 
-if($es_admin || in_array('crear_proveedor', $permisos)){
+if($es_admin || in_array('proveedores_crear', $permisos)){
     $botones[] = ['texto' => 'NUEVO PROVEEDOR', 'link' => 'javascript:abrirModal()', 'icono' => 'bi-plus-lg', 'class' => 'btn btn-light text-primary fw-bold rounded-pill px-4 shadow-sm ms-2'];
 }
 
@@ -134,7 +134,7 @@ include 'includes/componente_banner.php';
                         </td>
                         <td class="text-center d-none d-md-table-cell"><span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3"><?php echo $p['cant_productos']; ?> SKU</span></td>
                         <td class="text-end pe-4 text-nowrap">
-                            <?php if($es_admin || in_array('cuenta_proveedor', $permisos)): ?>
+                            <?php if($es_admin || in_array('proveedores_ver_cc', $permisos)): ?>
                             <a href="cuenta_proveedor.php?id=<?php echo $p['id']; ?>" class="btn btn-sm btn-dark rounded-pill px-2 px-md-3 me-1 shadow-sm" title="Ver Cuenta">
                                 <i class="bi bi-receipt"></i> <span class="d-none d-md-inline">CTA. CTE.</span>
                             </a>
@@ -144,8 +144,8 @@ include 'includes/componente_banner.php';
                                 <i class="bi bi-cart-plus-fill"></i>
                             </button>
 
-                            <?php if($es_admin || in_array('editar_proveedor', $permisos)): ?>
-                            <button class="btn btn-sm btn-outline-primary rounded-circle me-1" 
+                            <?php if($es_admin || in_array('proveedores_editar', $permisos)): ?>
+                            <button class="btn btn-sm btn-outline-primary rounded-circle me-1"
                                     data-id="<?php echo $p['id']; ?>"
                                     data-empresa="<?php echo htmlspecialchars($p['empresa']); ?>"
                                     data-contacto="<?php echo htmlspecialchars($p['contacto']); ?>"
@@ -156,7 +156,7 @@ include 'includes/componente_banner.php';
                             </button>
                             <?php endif; ?>
 
-                            <?php if($es_admin || in_array('eliminar_proveedor', $permisos)): ?>
+                            <?php if($es_admin || in_array('proveedores_eliminar', $permisos)): ?>
                             <button class="btn btn-sm btn-outline-danger rounded-circle" onclick="confirmarBorrar(<?php echo $p['id']; ?>, '<?php echo addslashes($p['empresa']); ?>')" title="Eliminar"><i class="bi bi-trash"></i></button>
                             <?php endif; ?>
                         </td>
