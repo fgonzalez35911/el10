@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanguard POS | Sistema de Gestión Integral</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Poppins:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+
+    <style>
+        /* =========================================
+           VARIABLES Y GLOBALES (TEMA DEEP TECH)
+           ========================================= */
+        :root {
+            --primary: #00f2fe;
+            --secondary: #080a10;
+            --accent: #6f42c1;
+            --dark-card: rgba(20, 25, 40, 0.7);
+            --text-dark: #e2e8f0;
+            --light-bg: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #ffffff !important;
+            overflow-x: hidden;
+            background-color: var(--secondary) !important;
+            background-image: radial-gradient(circle at 15% 50%, rgba(111, 66, 193, 0.08), transparent 25%), radial-gradient(circle at 85% 30%, rgba(0, 242, 254, 0.08), transparent 25%);
+            background-attachment: fixed;
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><path fill="%23080a10" stroke="%2300f2fe" stroke-width="2" stroke-linejoin="round" d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86 3.03 7.08c.14.34.54.51.89.37l2.25-.94c.34-.14.51-.54.37-.89l-3.04-7.1 5.43.08c.45.01.68-.53.35-.85L6.35 2.85c-.24-.23-.62-.23-.85 0z"/></svg>'), auto;
+        }
+
+        a, button, .feature-box, .pricing-card, .testimonial-card, .accordion-button, .gallery-item {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24"><path fill="%23080a10" stroke="%2300f2fe" stroke-width="2" stroke-linejoin="round" d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86 3.03 7.08c.14.34.54.51.89.37l2.25-.94c.34-.14.51-.54.37-.89l-3.04-7.1 5.43.08c.45.01.68-.53.35-.85L6.35 2.85c-.24-.23-.62-.23-.85 0z"/></svg>'), pointer !important;
+        }
+
+        h1, h2, h3, h4, h5, h6, .brand-font { font-family: 'Poppins', sans-serif; color: #ffffff !important; text-shadow: 0px 1px 3px rgba(0,0,0,0.8); }
+        p, .text-muted, .accordion-body { color: #cbd5e1 !important; font-weight: 500 !important; text-shadow: 0px 1px 3px rgba(0,0,0,0.8); }
+        .text-primary { color: var(--primary) !important; }
+        .text-accent { color: var(--accent) !important; }
+        .bg-white, .bg-light { background-color: transparent !important; }
+        hr, .border-bottom { border-color: rgba(255,255,255,0.05) !important; }
+
+        /* =========================================
+           NAVBAR GLASSMORPHISM (ACTUALIZADO: MÁS FINO)
+           ========================================= */
+        .navbar-custom {
+            background-color: rgba(8, 10, 16, 0.7) !important;
+            backdrop-filter: blur(20px) !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding: 10px 0; /* Menos espacio arriba/abajo para hacerlo más fino */
+            transition: all 0.4s ease;
+        }
+        .navbar-custom.scrolled { padding: 5px 0; background-color: rgba(8, 10, 16, 0.95) !important; } /* Aún más fino al scrollear */
+        .nav-link { font-weight: 600; color: #e2e8f0 !important; transition: color 0.3s; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; padding: 0.5rem 1rem !important;} /* Letra un toque más chica */
+        .nav-link:hover { color: var(--primary) !important; text-shadow: 0 0 10px rgba(0,242,254,0.5); }
+
+        /* Ajustes específicos para el Menú Hamburguesa y Móvil */
+        .navbar-toggler:focus { box-shadow: none; outline: none; } 
+        
+        @media (max-width: 991px) {
+            /* Forzamos que la barra no se desborde y el fondo sea oscuro SIEMPRE */
+            .navbar-custom { background-color: #080a10 !important; padding: 12px 0 !important; max-width: 100vw; overflow-x: hidden; }
+            
+            /* Permitimos 'wrap' para que el menú pueda caer a la línea de abajo */
+            .navbar > .container { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; width: 100%; }
+
+            /* Achicamos el logo y lo limitamos para que NO empuje a la hamburguesa afuera */
+            .navbar-brand { max-width: 75%; display: flex; align-items: center; overflow: hidden; margin-right: 0; }
+            .navbar-brand img { height: 24px !important; flex-shrink: 0; } 
+            .navbar-brand span { font-size: 1rem !important; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; } 
+
+            /* Fijamos la hamburguesa a la derecha para que siempre esté visible */
+            .navbar-toggler { flex-shrink: 0; display: block; }
+
+            /* El menú ahora ocupa el 100% del ancho abajo de la barra */
+            .navbar-collapse {
+                flex-basis: 100%;
+                background-color: #080a10; 
+                border-radius: 12px;
+                margin-top: 15px;
+                padding: 20px;
+                border: 1px solid rgba(255,255,255,0.1);
+                box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            }
+            .navbar-nav .nav-link {
+                padding: 12px 0 !important;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            .navbar-nav .nav-item:last-child .nav-link { border-bottom: none; }
+        }
+
+        /* =========================================
+           HERO & PARALLAX
+           ========================================= */
+        .hero {
+            height: 100vh; min-height: 800px; display: flex; align-items: center;
+            background-image: url('https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=2000&auto=format&fit=crop');
+            background-attachment: fixed; background-position: center; background-size: cover;
+            position: relative; padding-top: 80px;
+        }
+        .hero-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, rgba(11,15,25,0.95) 0%, rgba(13,110,253,0.5) 100%); z-index: 1; }
+        .hero-content { position: relative; z-index: 2; }
+        .hero h1 { font-size: clamp(3rem, 5vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 20px; text-shadow: none !important;}
+        .typed-text { color: var(--primary); border-right: 3px solid var(--primary); padding-right: 5px; animation: blink 0.7s infinite; }
+        @keyframes blink { 50% { border-color: transparent; } }
+
+        /* Banner Marcas */
+        .brands-bar { background: rgba(0,0,0,0.3) !important; padding: 30px 0; border-bottom: 1px solid rgba(255,255,255,0.05) !important; }
+
+        /* =========================================
+           TARJETAS DE CONTENIDO (MÓDULOS, IA, ETC)
+           ========================================= */
+        .ai-card, .feature-box, .step-box, .pricing-card, .testimonial-card {
+            background: var(--dark-card) !important; backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.08) !important; box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important; 
+            border-radius: 16px; padding: 40px 30px; height: 100%; transition: 0.3s;
+        }
+        .accordion-item {
+            background: transparent !important;
+            border: none !important;
+            border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+        }
+        .section-title { margin-bottom: 3.5rem !important; }
+        section { padding-top: 6rem !important; padding-bottom: 6rem !important; }
+
+        .ai-card:hover, .feature-box:hover, .pricing-card:hover, .testimonial-card:hover {
+            border-color: var(--primary) !important; box-shadow: 0 0 25px rgba(0, 242, 254, 0.15) !important; transform: translateY(-8px) scale(1.01) !important;
+        }
+        .ai-icon { font-size: 3.5rem; color: var(--primary); margin-bottom: 20px; display: inline-block; transition: transform 0.3s; }
+        .feature-icon-wrapper { width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin-bottom: 25px; color: white; background: rgba(0,242,254,0.1); border: 1px solid var(--primary);}
+        .feature-icon-wrapper i { margin-bottom: 0 !important; display: inline-block; transition: transform 0.3s; }
+
+        /* =========================================
+           BOTONES
+           ========================================= */
+        .btn-vanguard, .btn-primary {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--primary) 100%) !important; border: none !important;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3) !important; color: #fff !important; border-radius: 50px; padding: 15px 40px; font-weight: bold;
+        }
+        .btn-vanguard:hover, .btn-primary:hover { box-shadow: 0 0 30px rgba(0, 242, 254, 0.6) !important; transform: translateY(-3px) !important; }
+        .btn-outline-light { border-color: rgba(255,255,255,0.2) !important; color: var(--primary) !important; }
+        .btn-outline-light:hover { background: rgba(0,242,254,0.1) !important; border-color: var(--primary) !important; box-shadow: 0 0 20px rgba(0,242,254,0.3) !important; }
+
+        /* =========================================
+           SECCIONES ESPECÍFICAS
+           ========================================= */
+        .parallax-banner { padding: 150px 0; background-image: url('https://images.unsplash.com/photo-1556740758-90de374c12ad?q=80&w=2000&auto=format&fit=crop'); background-attachment: fixed; background-size: cover; background-position: center; position: relative; text-align: center; }
+        .parallax-banner::before { content: ''; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.7); }
+        .img-modern { border-radius: 24px; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
+        .mega-list { list-style: none; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .mega-list li { display: flex; align-items: center; color: #fff !important; font-weight: 600 !important; }
+        .mega-list i { color: var(--primary); font-size: 1.5rem; margin-right: 15px; }
+        
+        .stat-number { font-size: 4rem; font-weight: 900; font-family: 'Poppins'; }
+        .pricing-card.popular { border: 2px solid var(--primary) !important; transform: scale(1.05); }
+        .popular-badge { background: var(--primary); color: white; padding: 5px 20px; position: absolute; top: 20px; right: -35px; transform: rotate(45deg); font-size: 0.8rem; font-weight: bold; width: 150px; }
+        .price { font-size: 3.5rem; font-weight: 900; color: #fff; margin: 20px 0; }
+        .price span { font-size: 1.2rem; color: #888; font-weight: 500; }
+        .pricing-features { list-style: none; padding: 0; margin: 30px 0; text-align: left; }
+        .pricing-features li { margin-bottom: 15px; }
+        .pricing-features i { color: #198754; margin-right: 10px; }
+        
+        .step-number { width: 50px; height: 50px; background: var(--primary); color: white !important; font-weight: 900; font-size: 1.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; box-shadow: 0 10px 20px rgba(0,242,254,0.3); text-shadow: none !important; }
+        
+        .accordion-button { background-color: transparent !important; color: #fff !important; padding: 20px; font-weight: 600; }
+        .accordion-button:not(.collapsed) { color: var(--primary) !important; background: rgba(0,242,254,0.05) !important; box-shadow: none; }
+        .accordion-button:focus { box-shadow: none; }
+        .accordion-collapse { background: transparent !important; }
+
+        .text-neon { text-shadow: 0 0 20px rgba(0, 242, 254, 0.5); }
+        .mega-footer { background: #040508 !important; border-top: 1px solid rgba(255,255,255,0.05) !important; padding: 80px 0 20px; }
+        .mega-footer a { color: #a0aabf; text-decoration: none; transition: 0.3s; display: block; margin-bottom: 12px; }
+        .mega-footer a:hover { color: var(--primary); padding-left: 8px; }
+        .social-icons a { background: rgba(255,255,255,0.05); width: 45px; height: 45px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: white; margin-right: 10px; margin-bottom: 0; transition: 0.3s; padding: 0;}
+        .social-icons a:hover { background: var(--primary); transform: translateY(-5px); padding-left: 0; }
+
+        /* =========================================
+           ESTILOS GALERÍA 12 IMÁGENES Y VIDEOS
+           ========================================= */
+        .modern-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; }
+        .gallery-item { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); aspect-ratio: 4/3; }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease; }
+        .gallery-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(8,10,16,0.95) 0%, transparent 70%); display: flex; flex-direction: column; justify-content: flex-end; padding: 15px; opacity: 0; transition: opacity 0.3s; }
+        .gallery-item:hover img { transform: scale(1.05); }
+        .gallery-item:hover .gallery-overlay { opacity: 1; }
+        
+        .video-slider-wrapper { position: relative; display: flex; align-items: center; }
+        .video-slider { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 20px; padding-bottom: 15px; scroll-behavior: smooth; }
+        .video-slider::-webkit-scrollbar { height: 8px; }
+        .video-slider::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        .video-slider::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 10px; }
+        .video-slide-item { flex: 0 0 calc(33.333% - 14px); scroll-snap-align: start; }
+        @media (max-width: 992px) { .video-slide-item { flex: 0 0 calc(50% - 10px); } }
+        @media (max-width: 768px) { .video-slide-item { flex: 0 0 100%; } }
+        
+        .slider-btn { background: var(--primary); color: white; border: none; border-radius: 50%; width: 45px; height: 45px; position: absolute; z-index: 10; box-shadow: 0 0 10px rgba(0,242,254,0.5); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; transition: 0.3s; }
+        .slider-btn:hover { background: #00c6ff; transform: scale(1.1); }
+        .slider-btn.prev { left: -20px; }
+        .slider-btn.next { right: -20px; }
+
+        /* =========================================
+           ANIMACIONES CONTINUAS Y FLOTANTES
+           ========================================= */
+        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-12px); } 100% { transform: translateY(0px); } }
+        .float-anim { animation: float 6s ease-in-out infinite; }
+        .float-anim-delayed { animation: float 6s ease-in-out infinite 3s; }
+
+        .floating-btn-container { position: fixed; bottom: 30px; right: 30px; display: flex; flex-direction: column; gap: 15px; z-index: 999; }
+        .btn-float { width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 1.8rem; color: white !important; box-shadow: 0 10px 20px rgba(0,0,0,0.3); transition: all 0.3s ease; text-decoration: none; }
+        .btn-float:hover { transform: scale(1.1); }
+        .btn-wsp { background: #25d366; }
+        .btn-wsp:hover { background: #1ebd5a; box-shadow: 0 0 20px rgba(37, 211, 102, 0.6); }
+        .btn-up { background: rgba(8, 10, 16, 0.8); border: 1px solid var(--primary); backdrop-filter: blur(5px); opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s; }
+        .btn-up.show { opacity: 1; pointer-events: auto; }
+        .btn-up:hover { background: var(--primary); box-shadow: 0 0 20px rgba(0, 242, 254, 0.6); }
+
+        /* Iconos de Fondo Flotantes "Deep Tech" */
+        @keyframes bg-drift { 0% { transform: translate(0, 0) rotate(0deg); } 33% { transform: translate(15px, 20px) rotate(5deg); } 66% { transform: translate(-10px, -15px) rotate(-5deg); } 100% { transform: translate(0, 0) rotate(0deg); } }
+        .bg-floating-icons-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -2; pointer-events: none; overflow: hidden; }
+        .bg-floating-icon { position: absolute; color: var(--primary); animation: bg-drift linear infinite; transform-origin: center; }
+
+        /* --- TRUCO PARA OCULTAR MARCA DE AGUA Y AJUSTES DEL WIDGET --- */
+        .sk-instagram-feed a[href*="sociablekit"], 
+        .sk-ww-instagram-feed a[href*="sociablekit"],
+        .sk-branding, .sk-watermark {
+            display: none !important; opacity: 0 !important; height: 0 !important; pointer-events: none !important;
+        }
+        
+        .sk-layout-wrapper { background-color: transparent !important; }
+
+        /* Fondo blanco para el popup (Modal) de SociableKit */
+        .sk-pop-content, .sk-popup-modal, .sk-pop-wrapper, div[class*="sk-pop"] {
+            background-color: #ffffff !important; 
+            background: #ffffff !important;
+        }
+        
+        /* Asegurar que la "x" para cerrar y flechas sean negras para que se vean sobre el blanco */
+        .sk-pop-close, .sk-pop-nav, [class*="sk-pop-close"] {
+            background-color: #080a10 !important;
+            color: #ffffff !important;
+            border-radius: 50% !important;
+        }
+
+        /* Mantenemos el tamaño que ya tenías */
+        .sk-instagram-feed, .sk-ww-instagram-feed {
+            max-width: 900px !important; margin: 0 auto !important; transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="navbar navbar-dark navbar-expand-lg fixed-top navbar-custom" id="navbar">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="#" style="max-width: 80%;">
+                <img src="./img/2.png" alt="Vanguard POS" height="35">
+                <span class="brand-font fs-5 text-white ms-2 text-truncate">VANGUARD<span class="text-primary">POS</span></span>
+            </a>
+            <button class="navbar-toggler border-0 p-2" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav mx-auto mb-2 mb-lg-0">
+                    <li class="nav-item"><a class="nav-link" href="#ia">Seguridad IA</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#modulos">Módulos</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#galeria">Interfaz</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#precios">Planes</a></li>
+                </ul>
+                <a href="#contacto" class="btn btn-vanguard py-2 px-4">Solicitar Demo</a>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="hero-overlay"></div>
+        <div class="container hero-content text-center text-lg-start">
+            <div class="row align-items-center">
+                <div class="col-lg-7" data-aos="fade-right" data-aos-duration="1000">
+                    <span class="badge bg-transparent border border-primary text-primary rounded-pill px-3 py-2 mb-4 fs-6 fw-bold shadow">⚡ Arquitectura 2026 Integrada</span>
+                    <h1>El sistema inteligente para <br><span class="typed-text"></span></h1>
+                    <p class="fs-4 mt-4 mb-5 opacity-75 fw-light">Control absoluto de stock, facturación nativa AFIP y el único software con Inteligencia Artificial forense para blindar tu caja de transferencias falsas.</p>
+                    <div class="d-flex gap-3 flex-wrap justify-content-center justify-content-lg-start">
+                        <a href="#precios" class="btn btn-vanguard btn-lg">Ver Planes y Precios</a>
+                        <a href="#modulos" class="btn btn-outline-light btn-lg rounded-pill px-5 fw-bold">Explorar Sistema</a>
+                    </div>
+                </div>
+                <div class="col-lg-5 d-none d-lg-block" data-aos="fade-left" data-aos-duration="1200" data-aos-delay="200">
+                    <img src="https://images.unsplash.com/photo-1556740738-b6a63e27c4df?q=80&w=1000&auto=format&fit=crop" alt="POS System" class="img-fluid rounded-4 shadow-lg border border-4 border-primary border-opacity-50 float-anim" style="transform: perspective(1000px) rotateY(-15deg);">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="brands-bar text-center">
+        <div class="container">
+            <p class="text-muted small fw-bold text-uppercase tracking-wide mb-4">Tecnología homologada e integrada con:</p>
+            <div class="d-flex justify-content-center gap-5 flex-wrap align-items-center opacity-75">
+                <h4 class="fw-bold mb-0 text-light"><i class="bi bi-bank me-2"></i>AFIP</h4>
+                <h4 class="fw-bold mb-0 text-light"><i class="bi bi-qr-code me-2"></i>MERCADO PAGO</h4>
+                <h4 class="fw-bold mb-0 text-light"><i class="bi bi-shield-check me-2"></i>BCRA</h4>
+                <h4 class="fw-bold mb-0 text-light"><i class="bi bi-database me-2"></i>MySQL</h4>
+            </div>
+        </div>
+    </div>
+
+    <section id="ia" class="ai-section">
+        <div class="container position-relative z-1">
+            <div class="text-center mb-5 pb-4" data-aos="fade-up">
+                <h6 class="text-accent fw-bold text-uppercase tracking-wider mb-2">Escudo Forense Activo</h6>
+                <h2 class="section-title text-white">Radar IA Anti-Estafas</h2>
+                <p class="text-white-50 fs-5 mx-auto" style="max-width: 700px;">El único punto de venta que protege tus cobros virtuales. Escaneá el comprobante del cliente y dejá que Vanguard POS valide su autenticidad matemáticamente.</p>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-lg-4" data-aos="zoom-in" data-aos-delay="100">
+                    <div class="ai-card float-anim">
+                        <i class="bi bi-upc-scan ai-icon"></i>
+                        <h4 class="fw-bold mb-3 text-light">Motor OCR Milisegundo</h4>
+                        <p class="text-light opacity-75">Extracción de datos inteligente. El sistema lee banco, monto, fecha, CUIT destino y número de operación directamente desde la imagen en la pantalla de la caja.</p>
+                    </div>
+                </div>
+                <div class="col-lg-4" data-aos="zoom-in" data-aos-delay="200">
+                    <div class="ai-card float-anim-delayed">
+                        <i class="bi bi-fingerprint ai-icon"></i>
+                        <h4 class="fw-bold mb-3 text-light">Algoritmo BCRA</h4>
+                        <p class="text-light opacity-75">Validación de Módulo 10 y 11. Calcula si los CUITs y CVUs existen realmente. Si el estafador inventó un número en una app falsa, rebota al instante.</p>
+                    </div>
+                </div>
+                <div class="col-lg-4" data-aos="zoom-in" data-aos-delay="300">
+                    <div class="ai-card float-anim">
+                        <i class="bi bi-shield-lock ai-icon"></i>
+                        <h4 class="fw-bold mb-3 text-light">Bloqueo de Duplicados</h4>
+                        <p class="text-light opacity-75">Memoria transaccional. Es imposible que te pasen la misma captura de transferencia dos veces, el sistema cruza el número de operación y lo bloquea.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="modulos" class="modules-section">
+        <div class="container">
+            <div class="text-center mb-5 pb-4" data-aos="fade-up">
+                <h2 class="section-title text-light">Ingeniería de Gestión Total</h2>
+                <p class="fs-5 text-muted">25+ Módulos integrados. Sin instalaciones extrañas. Todo funciona desde tu navegador.</p>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="100">
+                    <div class="feature-box float-anim">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #0d6efd, #0dcaf0);"><i class="bi bi-cart4 text-white"></i></div>
+                        <h5 class="fw-bold text-light">Venta Ultra Rápida</h5>
+                        <p class="text-muted small">Lector de código de barras, búsqueda predictiva y teclado optimizado para no hacer fila.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="200">
+                    <div class="feature-box float-anim-delayed">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #dc3545, #fd7e14);"><i class="bi bi-receipt text-white"></i></div>
+                        <h5 class="fw-bold text-light">Facturación AFIP</h5>
+                        <p class="text-muted small">Conexión directa vía Web Service. Facturas A, B y C instantáneas o tickets internos de control.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="300">
+                    <div class="feature-box float-anim">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #198754, #20c997);"><i class="bi bi-wallet2 text-white"></i></div>
+                        <h5 class="fw-bold text-light">Cobros Múltiples</h5>
+                        <p class="text-muted small">Efectivo, Débito, Crédito, Transferencia, Fiado o pagos Mixtos. Calculadora de vueltos incluida.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="400">
+                    <div class="feature-box float-anim-delayed">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #6f42c1, #d63384);"><i class="bi bi-box-seam text-white"></i></div>
+                        <h5 class="fw-bold text-light">Stock y Mermas</h5>
+                        <p class="text-muted small">Alertas globales de poco stock, control de vencimientos y auditoría de artículos perdidos/rotos.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="500">
+                    <div class="feature-box float-anim">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #0dcaf0, #0d6efd);"><i class="bi bi-qr-code-scan text-white"></i></div>
+                        <h5 class="fw-bold text-light">QR Mercado Pago</h5>
+                        <p class="text-muted small">Vinculá tu caja. El cliente escanea el QR y el monto aparece solo. Aprobación en pantalla automática.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="600">
+                    <div class="feature-box float-anim-delayed">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #fd7e14, #ffc107);"><i class="bi bi-people text-white"></i></div>
+                        <h5 class="fw-bold text-light">Cuentas Corrientes</h5>
+                        <p class="text-muted small">Gestión de deudores. Asigná crédito, cobrá entregas parciales y llevá el saldo al centavo.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="700">
+                    <div class="feature-box float-anim">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #ffc107, #dc3545);"><i class="bi bi-star text-white"></i></div>
+                        <h5 class="fw-bold text-light">Fidelización</h5>
+                        <p class="text-muted small">Tickets con código QR propio para que el cliente acumule puntos y los canjee por descuentos.</p>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6" data-aos="fade-up" data-aos-delay="800">
+                    <div class="feature-box float-anim-delayed">
+                        <div class="feature-icon-wrapper border-0" style="background: linear-gradient(135deg, #20c997, #198754);"><i class="bi bi-graph-up-arrow text-white"></i></div>
+                        <h5 class="fw-bold text-light">Reportes y Auditoría</h5>
+                        <p class="text-muted small">Cierres de caja perfectos, control de gastos fijos y registro de qué hizo cada usuario minuto a minuto.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="parallax-banner">
+        <div class="container position-relative z-2" data-aos="zoom-in">
+            <h2 class="display-4 fw-bold mb-4 text-light">La evolución de tu negocio a un clic de distancia</h2>
+            <p class="fs-4 fw-light mb-5 text-light opacity-75">El software que usan los dueños que valoran su tiempo y su dinero.</p>
+            <a href="#precios" class="btn btn-primary btn-lg rounded-pill px-5 fw-bold shadow-lg">Ver Planes</a>
+        </div>
+    </section>
+
+    <section id="funciones" class="split-section">
+        <div class="container">
+            <div class="row align-items-center mb-5 pb-5">
+                <div class="col-lg-6 pe-lg-5" data-aos="fade-right">
+                    <h6 class="text-primary fw-bold tracking-wider mb-2">HERRAMIENTAS MASIVAS</h6>
+                    <h2 class="section-title text-light">Actualización Inteligente y Combos</h2>
+                    <p class="fs-5 text-muted mb-4">Diseñado para sobrevivir a la inflación. En Vanguard POS no modificás precios uno por uno.</p>
+                    
+                    <ul class="mega-list">
+                        <li><i class="bi bi-file-earmark-excel"></i> Importación masiva por Excel / CSV</li>
+                        <li><i class="bi bi-percent"></i> Aumentos en lote por Marca/Rubro</li>
+                        <li><i class="bi bi-arrow-repeat"></i> Redondeo automático de centavos</li>
+                        <li><i class="bi bi-boxes"></i> Armado de combos promocionales</li>
+                        <li><i class="bi bi-whatsapp"></i> Catálogo digital para WhatsApp</li>
+                        <li><i class="bi bi-palette"></i> Diseño "Marca Blanca" personalizable</li>
+                    </ul>
+                </div>
+                <div class="col-lg-6 mt-5 mt-lg-0" data-aos="fade-left">
+                    <img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=1000&auto=format&fit=crop" class="img-fluid img-modern float-anim" alt="Dashboard">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="stats-section text-center" style="background: rgba(8, 10, 16, 0.9) !important; border-top: 1px solid rgba(0, 242, 254, 0.2); border-bottom: 1px solid rgba(0, 242, 254, 0.2);">
+        <div class="container">
+            <div class="row g-4">
+                <div class="col-md-4" data-aos="fade-up" data-aos-delay="100">
+                    <div class="stat-number text-primary" data-target="3000">0</div><span class="text-primary fs-1 fw-bold">+</span>
+                    <h5 class="fw-bold opacity-75 text-light">Artículos procesados al instante</h5>
+                </div>
+                <div class="col-md-4" data-aos="fade-up" data-aos-delay="200">
+                    <div class="stat-number text-primary" data-target="25">0</div><span class="text-primary fs-1 fw-bold">+</span>
+                    <h5 class="fw-bold opacity-75 text-light">Módulos Operativos Activos</h5>
+                </div>
+                <div class="col-md-4" data-aos="fade-up" data-aos-delay="300">
+                    <div class="stat-number text-primary" data-target="100">0</div><span class="text-primary fs-1 fw-bold">%</span>
+                    <h5 class="fw-bold opacity-75 text-light">Seguridad Forense en Caja</h5>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="galeria" class="py-5" style="background-color: var(--secondary);">
+        <div class="container py-5">
+            <div class="text-center mb-5" data-aos="fade-up">
+                <h6 class="text-primary fw-bold tracking-wider mb-2">INTERFAZ DE USUARIO</h6>
+                <h2 class="section-title">El panel de control más limpio</h2>
+                <p class="text-muted fs-5">Hacé clic en cualquier imagen para abrir la galería interactiva.</p>
+            </div>
+            
+            <div class="modern-gallery">
+                <div class="gallery-item float-anim" onclick="abrirModal(0)"><img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=600" alt="Ventas"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Punto de Venta</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(1)"><img src="https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=600" alt="Auditoría"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Auditoría</h5></div></div>
+                <div class="gallery-item float-anim" onclick="abrirModal(2)"><img src="https://images.unsplash.com/photo-1563013544-824ae1b704d3?q=80&w=600" alt="IA"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Radar IA</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(3)"><img src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=600" alt="Stock"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Control de Stock</h5></div></div>
+                <div class="gallery-item float-anim" onclick="abrirModal(4)"><img src="https://images.unsplash.com/photo-1581339399838-2a1203b22421?q=80&w=600" alt="Facturación"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Facturación AFIP</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(5)"><img src="https://images.unsplash.com/photo-1542744173-8e7e53415bb0?q=80&w=600" alt="Métricas"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Métricas Reales</h5></div></div>
+                <div class="gallery-item float-anim" onclick="abrirModal(6)"><img src="https://images.unsplash.com/photo-1556740738-b6a63e27c4df?q=80&w=600" alt="Clientes"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Cuentas Corrientes</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(7)"><img src="https://images.unsplash.com/photo-1518186285589-2f7649de83e0?q=80&w=600" alt="QR"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Pagos QR</h5></div></div>
+                <div class="gallery-item float-anim" onclick="abrirModal(8)"><img src="https://images.unsplash.com/photo-1556741533-6e4a6214b4fb?q=80&w=600" alt="Fidelización"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Fidelización</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(9)"><img src="https://images.unsplash.com/photo-1607083206968-13611e3d76db?q=80&w=600" alt="Catálogo"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Catálogo Web</h5></div></div>
+                <div class="gallery-item float-anim" onclick="abrirModal(10)"><img src="https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?q=80&w=600" alt="Combos"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Combos y Ofertas</h5></div></div>
+                <div class="gallery-item float-anim-delayed" onclick="abrirModal(11)"><img src="https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?q=80&w=600" alt="Seguridad"><div class="gallery-overlay"><h5 class="fw-bold text-primary mb-1">Seguridad Avanzada</h5></div></div>
+            </div>
+        </div>
+    </section>
+
+    <div class="modal fade" id="galleryModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl">
+            <div class="modal-content bg-dark" style="border: 1px solid var(--primary); border-radius: 20px; overflow: hidden;">
+                <div class="modal-body p-0 position-relative">
+                    <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3 z-3" data-bs-dismiss="modal" style="background-color: rgba(0,0,0,0.5); padding: 10px; border-radius: 50%;"></button>
+                    
+                    <div id="lightboxCarousel" class="carousel slide" data-bs-interval="false">
+                        <div class="carousel-inner" id="lightboxInner">
+                            </div>
+                        <button class="carousel-control-prev" type="button" data-bs-target="#lightboxCarousel" data-bs-slide="prev">
+                            <span class="carousel-control-prev-icon" aria-hidden="true" style="filter: drop-shadow(0 0 5px #000);"></span>
+                            <span class="visually-hidden">Anterior</span>
+                        </button>
+                        <button class="carousel-control-next" type="button" data-bs-target="#lightboxCarousel" data-bs-slide="next">
+                            <span class="carousel-control-next-icon" aria-hidden="true" style="filter: drop-shadow(0 0 5px #000);"></span>
+                            <span class="visually-hidden">Siguiente</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <section class="py-5" style="background-color: var(--secondary); border-top: 1px solid rgba(255,255,255,0.05);">
+        <div class="container py-5 position-relative">
+            <div class="text-center mb-5" data-aos="fade-up">
+                <h6 class="text-accent fw-bold tracking-wider mb-2">DEMOSTRACIONES</h6>
+                <h2 class="section-title">Mirá a Vanguard POS en acción</h2>
+            </div>
+            
+            <div class="row justify-content-center" data-aos="zoom-in">
+                <div class="col-12 text-center">
+                    
+                    <div class="p-2 border border-primary rounded-4 shadow-lg float-anim" style="background: var(--dark-card); min-height: 400px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                        
+                        <script src="https://widgets.sociablekit.com/instagram-feed/widget.js" async defer></script>
+                        <div class="sk-instagram-feed" data-embed-id="25667482"></div>
+                        
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="precios" class="pricing-section">
+        <div class="container">
+            <div class="text-center mb-5 pb-3" data-aos="fade-up">
+                <h2 class="section-title text-light">Planes Transparentes</h2>
+                <p class="text-muted fs-5">Pagás por lo que usás. Sin comisiones ocultas por venta.</p>
+            </div>
+
+            <div class="row g-4 align-items-center justify-content-center">
+                <div class="col-lg-4 col-md-6" data-aos="fade-up" data-aos-delay="100">
+                    <div class="pricing-card float-anim">
+                        <h4 class="fw-bold text-light">BÁSICO</h4>
+                        <p class="text-muted">Ideal para empezar ordenado</p>
+                        <div class="price">$15.000<span>/mes</span></div>
+                        <ul class="pricing-features">
+                            <li><i class="bi bi-check-circle-fill"></i> Punto de Venta rápido</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Control de Stock Básico</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Cierres de Caja</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Reportes Diarios</li>
+                            <li class="text-muted"><i class="bi bi-dash-circle text-muted"></i> Sin Facturación AFIP</li>
+                            <li class="text-muted"><i class="bi bi-dash-circle text-muted"></i> Sin Radar IA</li>
+                        </ul>
+                        <a href="#contacto" class="btn btn-outline-light w-100 rounded-pill fw-bold py-2">Elegir Básico</a>
+                    </div>
+                </div>
+                
+                <div class="col-lg-4 col-md-6" data-aos="fade-up" data-aos-delay="200">
+                    <div class="pricing-card popular float-anim-delayed">
+                        <div class="popular-badge">MÁS VENDIDO</div>
+                        <h4 class="fw-bold text-primary">VANGUARD PRO</h4>
+                        <p class="text-muted">El software definitivo del comercio</p>
+                        <div class="price">$25.000<span>/mes</span></div>
+                        <ul class="pricing-features">
+                            <li><i class="bi bi-check-circle-fill"></i> <strong class="text-light">Todo lo del plan Básico</strong></li>
+                            <li><i class="bi bi-check-circle-fill"></i> Facturación Electrónica AFIP</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Integración Mercado Pago QR</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Radar Forense IA (Anti-Estafas)</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Cuentas Corrientes (Fiado)</li>
+                            <li><i class="bi bi-check-circle-fill"></i> Fidelización de Clientes</li>
+                        </ul>
+                        <a href="#contacto" class="btn btn-vanguard w-100 py-3">Obtener Licencia PRO</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="py-5">
+        <div class="container py-5">
+            <div class="text-center mb-5 pb-3" data-aos="fade-up">
+                <h2 class="section-title text-light">Tu negocio modernizado en 3 pasos</h2>
+                <p class="text-muted fs-5">Sin procesos complicados. Vos te enfocás en vender, nosotros en la tecnología.</p>
+            </div>
+            <div class="row g-4 position-relative">
+                <div class="col-lg-4" data-aos="fade-up" data-aos-delay="100">
+                    <div class="step-box float-anim">
+                        <div class="step-number">1</div>
+                        <h4 class="fw-bold mb-3 text-light">Contacto Inicial</h4>
+                        <p class="text-muted">Nos escribís por WhatsApp, analizamos tu rubro y armamos la configuración ideal para tu local.</p>
+                    </div>
+                </div>
+                <div class="col-lg-4" data-aos="fade-up" data-aos-delay="200">
+                    <div class="step-box float-anim-delayed">
+                        <div class="step-number">2</div>
+                        <h4 class="fw-bold mb-3 text-light">Instalación Remota</h4>
+                        <p class="text-muted">Nos conectamos o te visitamos para dejar el sistema corriendo al 100% en tu computadora y vincular el lector.</p>
+                    </div>
+                </div>
+                <div class="col-lg-4" data-aos="fade-up" data-aos-delay="300">
+                    <div class="step-box float-anim">
+                        <div class="step-number">3</div>
+                        <h4 class="fw-bold mb-3 text-light">A Vender</h4>
+                        <p class="text-muted">Te capacitamos a vos y a tus empleados en 15 minutos. El sistema es tan intuitivo que arrancan en el acto.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="py-5">
+        <div class="container py-5">
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="text-center mb-5" data-aos="fade-up">
+                        <h2 class="section-title text-light">Preguntas Frecuentes</h2>
+                        <p class="text-muted">Conocé todo el potencial que Vanguard POS tiene para tu negocio.</p>
+                    </div>
+                    
+                    <div class="accordion shadow-sm" id="faqAccordion" data-aos="fade-up" data-aos-delay="100">
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#faq1">
+                                    ¿Cómo se instala el sistema en mi local?
+                                </button>
+                            </h2>
+                            <div id="faq1" class="accordion-collapse collapse show" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Vanguard POS funciona de manera ágil desde el navegador web. No requiere instalaciones complejas ni servidores costosos. Te damos tu acceso y empezás a vender al instante.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq2">
+                                    ¿Puedo actualizar todos mis precios juntos frente a la inflación?
+                                </button>
+                            </h2>
+                            <div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí, está diseñado para la realidad actual. Podés hacer actualizaciones masivas importando tu lista de Excel o CSV, y aplicar aumentos en lote por porcentaje a rubros o marcas completas.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq3">
+                                    ¿Cómo me protege el Radar IA contra estafas?
+                                </button>
+                            </h2>
+                            <div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Nuestra Inteligencia Artificial extrae los datos del comprobante por lectura óptica (OCR) y cruza la información matemática del CUIT y CBU con los algoritmos del BCRA para detectar recibos falsos.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq4">
+                                    ¿Permite emitir Factura Electrónica de AFIP?
+                                </button>
+                            </h2>
+                            <div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Absolutamente. Vanguard POS se conecta de manera nativa con AFIP. Podés generar Facturas A, B y C directamente desde la pantalla de ventas sin tener que entrar a la página del gobierno.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq5">
+                                    ¿Es rápido para usar en horas pico con mucha gente?
+                                </button>
+                            </h2>
+                            <div id="faq5" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí, está pensado para no hacer fila. Incorpora atajos de teclado rápidos (F2, F4, F7, F9), búsqueda predictiva y lectura de código de barras para que el cajero cobre en segundos.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq6">
+                                    ¿Está integrado de forma oficial con Mercado Pago?
+                                </button>
+                            </h2>
+                            <div id="faq6" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Totalmente. Genera un código QR dinámico e interoperable en pantalla. El cliente escanea, el monto se carga solo y el sistema aprueba la venta automáticamente sin que tengas que revisar tu celular.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq7">
+                                    ¿Puedo armar promociones o combos de productos?
+                                </button>
+                            </h2>
+                            <div id="faq7" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí, contamos con un módulo de combos (escandallos). Podés armar ofertas agrupando productos distintos y el sistema se encarga de descontar el stock individual de cada uno de forma exacta.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq8">
+                                    ¿Tiene sistema para anotar "fiado" a clientes fijos?
+                                </button>
+                            </h2>
+                            <div id="faq8" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí. El módulo de Cuentas Corrientes te permite asignar crédito a clientes, registrar entregas a cuenta y mantener el historial completo de la deuda para que no pierdas un centavo.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq9">
+                                    ¿El sistema me ayuda a calcular el vuelto?
+                                </button>
+                            </h2>
+                            <div id="faq9" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Incorpora una calculadora de vuelto avanzada. Le indicás al sistema con qué billetes te pagan y te desglosa exactamente el cambio que debés entregar para evitar errores de caja.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq10">
+                                    ¿Puedo limitar lo que ven mis cajeros o empleados?
+                                </button>
+                            </h2>
+                            <div id="faq10" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Por supuesto. Tenés control total mediante roles y permisos. El cajero solo puede cobrar, mientras que vos como administrador accedés a los costos, reportes y toda la auditoría de seguridad del negocio.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq11">
+                                    ¿Ofrece algún sistema para fidelizar clientes?
+                                </button>
+                            </h2>
+                            <div id="faq11" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí. Vanguard POS imprime un código QR en los tickets para que tus clientes se registren y acumulen puntos con sus compras, los cuales pueden canjear luego por beneficios.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq12">
+                                    ¿Me avisa si me estoy quedando sin mercadería?
+                                </button>
+                            </h2>
+                            <div id="faq12" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí, el módulo de stock es global. Podés configurar límites mínimos y el sistema te generará alertas automáticas para que sepas exactamente qué tenés que pedirle al proveedor.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq13">
+                                    ¿Es compatible con mis equipos actuales?
+                                </button>
+                            </h2>
+                            <div id="faq13" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Vanguard POS es totalmente compatible con lectores de códigos de barra estándar y tiqueteras térmicas de cualquier marca. No necesitás comprar hardware especial.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq14">
+                                    ¿Tiene opciones para venta online?
+                                </button>
+                            </h2>
+                            <div id="faq14" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí. Incluye un catálogo web estructurado que funciona como tu tienda virtual. Los clientes arman su pedido y te lo envían directamente detallado por WhatsApp.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq15">
+                                    ¿Me sirve para ver los números reales del local?
+                                </button>
+                            </h2>
+                            <div id="faq15" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Totalmente. Podés sacar reportes de recaudación, controlar gastos fijos, ver qué productos son los más vendidos y realizar cierres de caja ciegos y perfectos.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq16">
+                                    ¿El diseño del sistema se adapta a mi marca?
+                                </button>
+                            </h2>
+                            <div id="faq16" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí. Vanguard POS ofrece tecnología de "Marca Blanca". Podés personalizar los colores y el logo para que el sistema tenga la identidad completa de tu comercio.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq17">
+                                    ¿Permite cobrar una venta con varios métodos de pago?
+                                </button>
+                            </h2>
+                            <div id="faq17" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Sí, soporta cobros mixtos sin complicaciones. Podés registrar que un cliente te pagó una parte en efectivo y el resto con tarjeta o transferencia en el mismo ticket.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq18">
+                                    ¿Puedo auditar el sistema a distancia?
+                                </button>
+                            </h2>
+                            <div id="faq18" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Como es un sistema de gestión centralizado, podés ingresar desde tu celular o notebook en cualquier lugar para ver las ventas en tiempo real mientras tus empleados trabajan.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq19">
+                                    ¿Qué pasa con los centavos al actualizar precios?
+                                </button>
+                            </h2>
+                            <div id="faq19" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Para facilitarte la vida en la caja, el sistema cuenta con una función de redondeo automático. Al subir los precios masivamente, limpia los centavos molestos para que los cobros sean exactos.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item border-0 border-bottom">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faq20">
+                                    ¿Qué soporte recibo una vez que empiezo a usarlo?
+                                </button>
+                            </h2>
+                            <div id="faq20" class="accordion-collapse collapse" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body opacity-75">
+                                    Nuestra tecnología incluye soporte técnico de respuesta rápida. Estamos disponibles para ayudarte a importar tu stock inicial, configurar la AFIP y resolver cualquier duda operativa al instante.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contacto" style="background: linear-gradient(135deg, var(--secondary) 0%, #0f172a 100%); padding: 100px 0; border-top: 1px solid rgba(0, 242, 254, 0.2); border-bottom: 1px solid rgba(111, 66, 193, 0.3); box-shadow: inset 0 0 50px rgba(0,0,0,0.5);">
+        <div class="container text-center text-white" data-aos="zoom-in">
+            <h2 class="display-4 fw-bold mb-4 text-neon">¿Listo para blindar tu negocio?</h2>
+            <p class="fs-4 fw-light mb-5 text-light opacity-75">Contactanos hoy y agendá una demostración gratuita de Vanguard POS.</p>
+            <a href="https://wa.me/5491166116861" target="_blank" class="btn btn-vanguard btn-lg rounded-pill fw-bold px-5 py-3 shadow-lg fs-5">
+                <i class="bi bi-whatsapp me-2"></i> Escribinos por WhatsApp
+            </a>
+        </div>
+    </section>
+
+    <footer class="mega-footer">
+        <div class="container">
+            <div class="row g-5 mb-5">
+                <div class="col-lg-4 pe-lg-5">
+                    <span class="fs-3 fw-bold text-white mb-3 d-block brand-font">VANGUARD<span class="text-primary">POS</span></span>
+                    <p class="mb-4 pe-4">El software de punto de venta definitivo. Diseñado bajo una arquitectura robusta, impulsado por Inteligencia Artificial y preparado para escalar tu negocio sin límites.</p>
+                    <div class="social-icons">
+                        <a href="#"><i class="bi bi-tiktok"></i></a>
+                        <a href="#"><i class="bi bi-instagram"></i></a>
+                        <a href="#"><i class="bi bi-facebook"></i></a>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4">
+                    <h5>Módulos</h5>
+                    <a href="#modulos">Punto de Venta</a>
+                    <a href="#modulos">Stock e Inventario</a>
+                    <a href="#ia">Seguridad IA</a>
+                    <a href="#modulos">Facturación AFIP</a>
+                </div>
+                <div class="col-lg-3 col-md-4">
+                    <h5>Empresa</h5>
+                    <a href="#precios">Planes y Precios</a>
+                    <a href="#faqAccordion">Preguntas Frecuentes</a>
+                    <a href="#">Términos y Condiciones</a>
+                    <a href="#">Política de Privacidad</a>
+                </div>
+                <div class="col-lg-3 col-md-4">
+                    <h5>Contacto</h5>
+                    <p class="mb-2"><i class="bi bi-geo-alt text-primary me-2"></i> Buenos Aires, Argentina</p>
+                    <p class="mb-2"><i class="bi bi-envelope text-primary me-2"></i> hola@vanguardpos.com</p>
+                    <p class="mb-0"><i class="bi bi-whatsapp text-primary me-2"></i> Soporte 24/7 en línea</p>
+                </div>
+            </div>
+            <hr class="border-secondary opacity-25">
+            <div class="row mt-4">
+                <div class="col-md-6 text-center text-md-start">
+                    <p class="small mb-0">&copy; 2026 Vanguard POS. Todos los derechos reservados.</p>
+                </div>
+                <div class="col-md-6 text-center text-md-end">
+                    <p class="small mb-0">Tecnología desarrollada en Argentina <i class="bi bi-heart-fill text-danger ms-1"></i></p>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    <div class="floating-btn-container">
+        <a href="#" class="btn-float btn-up" id="btnScrollTop" title="Volver arriba"><i class="bi bi-arrow-up-short"></i></a>
+        <a href="https://wa.me/5491166116861" target="_blank" class="btn-float btn-wsp" title="Consultar por WhatsApp"><i class="bi bi-whatsapp"></i></a>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        // Inicializar animaciones de Scroll (AOS)
+        AOS.init({ once: true, offset: 50 });
+
+        // Efecto Navbar Scrolled
+        window.addEventListener('scroll', function() {
+            const navbar = document.getElementById('navbar');
+            if (window.scrollY > 50) { navbar.classList.add('scrolled'); } 
+            else { navbar.classList.remove('scrolled'); }
+        });
+
+        // Efecto de Texto Typeado
+        const typedTextSpan = document.querySelector(".typed-text");
+        const textArray = ["Kioscos.", "Ferreterías.", "Dietéticas.", "Pet Shops.", "Tu Negocio."];
+        const typingDelay = 100; const erasingDelay = 50; const newTextDelay = 2000;
+        let textArrayIndex = 0; let charIndex = 0;
+
+        function type() {
+            if (charIndex < textArray[textArrayIndex].length) {
+                typedTextSpan.textContent += textArray[textArrayIndex].charAt(charIndex);
+                charIndex++; setTimeout(type, typingDelay);
+            } else { setTimeout(erase, newTextDelay); }
+        }
+
+        function erase() {
+            if (charIndex > 0) {
+                typedTextSpan.textContent = textArray[textArrayIndex].substring(0, charIndex - 1);
+                charIndex--; setTimeout(erase, erasingDelay);
+            } else {
+                textArrayIndex++;
+                if (textArrayIndex >= textArray.length) textArrayIndex = 0;
+                setTimeout(type, typingDelay + 500);
+            }
+        }
+        document.addEventListener("DOMContentLoaded", function() { if(textArray.length) setTimeout(type, newTextDelay + 250); });
+
+        // Contadores Numéricos
+        const counters = document.querySelectorAll('.stat-number');
+        let hasCounted = false;
+
+        window.addEventListener('scroll', () => {
+            const statsSection = document.querySelector('.stats-section');
+            if (statsSection && !hasCounted && window.scrollY + window.innerHeight > statsSection.offsetTop + 100) {
+                counters.forEach(counter => {
+                    const target = +counter.getAttribute('data-target');
+                    const duration = 2000; const increment = target / (duration / 16);
+                    let current = 0;
+                    const updateCounter = () => {
+                        current += increment;
+                        if (current < target) { counter.innerText = Math.ceil(current); requestAnimationFrame(updateCounter); } 
+                        else { counter.innerText = target; }
+                    };
+                    updateCounter();
+                });
+                hasCounted = true;
+            }
+        });
+
+        // Botón Volver Arriba
+        const btnScrollTop = document.getElementById('btnScrollTop');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 300) { btnScrollTop.classList.add('show'); } 
+            else { btnScrollTop.classList.remove('show'); }
+        });
+        btnScrollTop.addEventListener('click', (e) => {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // Movimiento Continuo (Flotación)
+        document.addEventListener("DOMContentLoaded", function() {
+            document.querySelectorAll('.ai-card, .feature-box, .pricing-card, .img-modern, .step-box, .testimonial-card, .gallery-item, .video-slide-item').forEach((el, index) => {
+                el.classList.add(index % 2 === 0 ? 'float-anim' : 'float-anim-delayed');
+            });
+        });
+
+        // Iconos de Fondo Flotantes "Deep Tech"
+        document.addEventListener("DOMContentLoaded", function() {
+            const iconContainer = document.createElement('div');
+            iconContainer.classList.add('bg-floating-icons-container');
+            document.body.appendChild(iconContainer);
+
+            const iconClasses = [
+                'bi-shield-lock', 'bi-fingerprint', 'bi-shield-check', 'bi-key', 'bi-lock',
+                'bi-building', 'bi-briefcase', 'bi-shop', 'bi-graph-up', 'bi-cash-coin', 'bi-receipt',
+                'bi-people', 'bi-person-badge', 'bi-person-vcard',
+                'bi-cart', 'bi-cart-check', 'bi-credit-card', 'bi-qr-code', 'bi-upc-scan', 'bi-piggy-bank',
+                'bi-box-seam', 'bi-boxes', 'bi-tag', 'bi-hourglass-split', 'bi-database',
+                'bi-gear', 'bi-cpu', 'bi-cloud', 'bi-database-check'
+            ];
+
+            const numIcons = 80;
+
+            for (let i = 0; i < numIcons; i++) {
+                const icon = document.createElement('i');
+                icon.classList.add('bg-floating-icon', iconClasses[Math.floor(Math.random() * iconClasses.length)]);
+                icon.style.left = `${Math.random() * 100}vw`;
+                icon.style.top = `${Math.random() * 100}vh`;
+                icon.style.fontSize = `${Math.random() * 25 + 10}px`; 
+                icon.style.opacity = `${Math.random() * 0.12 + 0.03}`; 
+                icon.style.animationDuration = `${Math.random() * 60 + 30}s`; 
+                icon.style.animationDelay = `${Math.random() * -60}s`; 
+                iconContainer.appendChild(icon);
+            }
+        });
+
+        // Lógica Galería Lightbox (Clona las fotos automáticamente)
+        document.addEventListener("DOMContentLoaded", function() {
+            const items = document.querySelectorAll('.gallery-item');
+            const carouselInner = document.getElementById('lightboxInner');
+            if(items.length > 0 && carouselInner) {
+                items.forEach((item, index) => {
+                    const img = item.querySelector('img').src;
+                    const title = item.querySelector('h5').innerText;
+                    const activeClass = index === 0 ? 'active' : '';
+                    carouselInner.innerHTML += `
+                        <div class="carousel-item ${activeClass}">
+                            <img src="${img}" class="d-block w-100" style="height: 75vh; object-fit: contain; background: #000;">
+                            <div class="carousel-caption d-none d-md-block bg-dark bg-opacity-75 rounded-3 border border-primary p-3 mb-3">
+                                <h4 class="text-primary mb-0 fw-bold">${title}</h4>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+        });
+
+        function abrirModal(index) {
+            var myModal = new bootstrap.Modal(document.getElementById('galleryModal'));
+            var miCarrusel = document.getElementById('lightboxCarousel');
+            var bsCarousel = bootstrap.Carousel.getInstance(miCarrusel) || new bootstrap.Carousel(miCarrusel);
+            bsCarousel.to(index);
+            myModal.show();
+        }
+
+        
+    </script>
+</body>
+</html>
