@@ -48,7 +48,7 @@ $total = floatval($_POST['total'] ?? 0);
     }
     $id_caja_sesion = $caja['id'];
     $conf = $conexion->query("SELECT dinero_por_punto, redondeo_auto, tipo_negocio FROM configuracion WHERE id=1")->fetch(PDO::FETCH_ASSOC);
-    $redondeo_activo = (isset($conf['redondeo_auto']) && $conf['redondeo_auto'] == 1);
+    $redondeo_activo = (isset($conf['redondeo_auto']) && $conf['redondeo_auto'] == 1 && strtolower($metodo_pago) === 'efectivo');
     $rubro_actual = $conf['tipo_negocio'] ?? 'kiosco';
 
     // ---------------------------------------------------------
